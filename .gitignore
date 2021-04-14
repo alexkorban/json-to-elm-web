@@ -1,0 +1,5 @@
+node_modules/
+test/
+elm-stuff/
+generated/
+public/elm.js

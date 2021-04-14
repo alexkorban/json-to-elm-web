@@ -1,0 +1,1 @@
+Prior art: https://noredink.github.io/json-to-elm/

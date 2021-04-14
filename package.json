@@ -1,0 +1,20 @@
+{
+  "name": "json2elm",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "compile-cli": "elm make src/CommandLine.elm --output ./cli.js",
+    "dev": "elm-live src/Main.elm -u --dir ./public -- --debug --output public/elm.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "UNLICENCED",
+  "devDependencies": {
+    "chalk": "^4.1.0",
+    "cross-spawn": "^7.0.3",
+    "fs-extra": "^9.1.0",
+    "glob": "^7.1.6",
+    "ramda": "^0.27.1"
+  }
+}
