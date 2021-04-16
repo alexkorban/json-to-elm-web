@@ -6,20 +6,27 @@ const R = require("ramda")
 const Util = require("util")
 const { spawn } = require("cross-spawn")
 
-const jsonSamples = [
+
+
+const jsonSamples = R.concat([
 `
 {
     "account": {
         "id": 1, 
         "user" : {
             "name": "abc",
+            "alias": "def",
             "address": {
                 "num": 1, 
                 "street": "abc", 
                 "postcode": 5024
             },
+            "import": null,
+            "of": true,
+            "if": "then",
+            "null": false,
             "cards": [],
-            "isActive": true
+            "_isActive": true
         }, 
         "prefs": [
             1, 
@@ -36,37 +43,142 @@ const jsonSamples = [
     }
 }
 `
-    , `
-123
-`
-    , `
-"str"
-`
-    , `
-[1, [2, [3]]]
-`
-    , `
-    []
-`
-    , `
-    {}
-`
-    , `
-[{"red": 255, "green": 255, "blue": 255}]
-`
-    , `
-{"first": null, "second": [1, 2, "null", 4]}
-`
-    , `
-{"first": [1, [2], 3, ["4"], []]}
-`
-    , `
-[1, [2], 3, ["4"], null]    
-`
 , `
 false
 `
-]
+, `
+123
+`
+, `
+"str"
+`
+, `
+null
+`
+, `
+[]
+`
+, `
+{}
+`
+, `
+[{"red": 255, "green": 255, "blue": 255}, {"red": 0, "green": 0, "blue": 0}]
+`
+, `
+[1, [2, [3]]]
+`
+, `
+[1, [2], 3, ["4"], null]    
+`
+, `
+{"first": null, "second": [1, 2, "null", 4]}
+`
+, `
+{"first": [1, [2], 3, ["4"], []]}
+`
+, `
+{"widget": {
+    "debug": "on",
+    "window": {
+        "title": "Sample Konfabulator Widget",
+        "name": "main_window",
+        "width": 500,
+        "height": 500
+    },
+    "image": { 
+        "src": "Images/Sun.png",
+        "name": "sun1",
+        "hOffset": 250,
+        "vOffset": 250,
+        "alignment": "center"
+    },
+    "text": {
+        "data": "Click Here",
+        "size": 36,
+        "style": "bold",
+        "name": "text1",
+        "hOffset": 250,
+        "vOffset": 100,
+        "alignment": "center",
+        "onMouseUp": "sun1.opacity = (sun1.opacity / 100) * 90;"
+    }
+}}    
+`
+, `
+{
+	"items":
+		{
+			"item":
+				[
+					{
+						"id": "0001",
+						"type": "donut",
+						"name": "Cake",
+						"ppu": 0.55,
+						"batters":
+							{
+								"batter":
+									[
+										{ "id": "1001", "type": "Regular" },
+										{ "id": "1002", "type": "Chocolate" },
+										{ "id": "1003", "type": "Blueberry" },
+										{ "id": "1004", "type": "Devil's Food" }
+									]
+							},
+						"topping":
+							[
+								{ "id": "5001", "type": "None" },
+								{ "id": "5002", "type": "Glazed" },
+								{ "id": "5005", "type": "Sugar" },
+								{ "id": "5007", "type": "Powdered Sugar" },
+								{ "id": "5006", "type": "Chocolate with Sprinkles" },
+								{ "id": "5003", "type": "Chocolate" },
+								{ "id": "5004", "type": "Maple" },
+								{ "id": "5001", "type": "None" },
+								{ "id": "5002", "type": "Glazed" },
+								{ "id": "5005", "type": "Sugar" },
+								{ "id": "5007", "type": "Powdered Sugar" },
+								{ "id": "5006", "type": "Chocolate with Sprinkles" },
+								{ "id": "5003", "type": "Chocolate" },
+								{ "id": "5004", "type": "Maple" },
+								{ "id": "5001", "type": "None" },
+								{ "id": "5002", "type": "Glazed" },
+								{ "id": "5005", "type": "Sugar" },
+								{ "id": "5007", "type": "Powdered Sugar" },
+								{ "id": "5006", "type": "Chocolate with Sprinkles" },
+								{ "id": "5003", "type": "Chocolate" },
+								{ "id": "5004", "type": "Maple" }
+							]
+					}
+				]
+		}
+}
+`
+, `
+{ 
+    "1": "a", 
+    "2": "b",
+    "3": "c",
+    "4": "d",
+    "5": "e",
+    "6": "f",
+    "7": "g",
+    "8": "h",
+    "9": "i", 
+    "10": "j",
+    "11": "k",
+    "12": "l",
+    "13": "m",
+    "14": "n",
+    "15": "o",
+    "16": "p",
+    "17": "q"
+}
+`
+, `
+{"_": 1, "😀": "2", "😀face": false, "@field": null}
+`
+], R.map((fileName) => Fs.readFileSync(fileName).toString(), Glob.sync("json-samples/*.json")))
 
 const compileElm = (sourceFileNames, outputName) => {
     const args = ["make", sourceFileNames, "--optimize", "--output", `generated/${outputName}.js`]
@@ -118,7 +230,7 @@ import Json.Encode
 import Platform exposing (Program)
 
 -- JSON SAMPLE:
-${elm.json.split("\n").join("\n--")}
+-- ${elm.json.split("\n").join("\n--")}
 
 
 port output${elm.id} : String -> Cmd msg
@@ -172,7 +284,21 @@ convert()
 })
 .then((results) => {
     console.log("Compiling Elm test files...")
-    compileElm(Glob.sync("test/*.elm"), "tests")
+
+    try {
+        compileElm(Glob.sync("test/*.elm"), "tests")
+    }
+    catch(err) {
+        console.log(err)
+        console.log(
+            R.pipe(
+                R.addIndex(R.map)((r, i) => !R.isEmpty(r.error) ? `Test${i}: ${r.error}` : null),
+                R.reject(R.isNil)
+            )(results)
+        )
+        process.exit(1)
+    }
+    
 
     const TestElm = require("./generated/tests.js").Elm
 

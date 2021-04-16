@@ -6,7 +6,7 @@ import Dict exposing (Dict)
 import Json.Decode as Decode exposing (Decoder)
 import List.Extra
 import Set exposing (Set)
-import String.Extra exposing (decapitalize)
+import String.Extra
 
 
 type JsonValue
@@ -92,7 +92,7 @@ annotate pathSoFar node =
             Array.fromList [ "Object", "Item", "Entity", "Thing", "Instance", "Constituent", "Specimen", "Gadget", "Widget", "Gizmo", "Part", "Chunk", "Piece", "Thingy", "Thingamajig", "Whatsit", "Doodad" ]
 
         strFromIndex index =
-            Maybe.withDefault (String.fromInt index) <| Array.get index indexNoun
+            Maybe.withDefault ("Alias" ++ String.fromInt index) <| Array.get index indexNoun
 
         annotateList index listNode =
             annotate (Cons.appendList pathSoFar [ strFromIndex index ]) listNode
@@ -124,7 +124,7 @@ annotate pathSoFar node =
         JList children ->
             { node
                 | path = pathSoFar
-                , value = JList (List.indexedMap annotateList children)
+                , value = JList <| List.indexedMap annotateList children
             }
 
         JObj children ->
@@ -218,7 +218,7 @@ objTypeAlias path nodes =
     nodes
         |> List.map
             (\node ->
-                (Cons.head <| Cons.reverse node.path) ++ ": " ++ elmType node
+                (adorn <| Cons.head <| Cons.reverse node.path) ++ " : " ++ elmType node
             )
         |> List.sort
         |> String.join "\n    , "
@@ -439,46 +439,94 @@ listDecoders node childNodes =
            )
 
 
+objFieldDecoders : Int -> List Node -> String
+objFieldDecoders indent nodes =
+    nodes
+        |> List.map
+            (\node ->
+                String.repeat indent " "
+                    ++ "(Json.Decode.field \""
+                    ++ (Cons.head <| Cons.reverse node.path)
+                    ++ "\" "
+                    ++ (withApplyArrow <| decoderName node)
+                    ++ ")"
+            )
+        |> String.join "\n"
+
+
+stagedObjDecoders : String -> List Node -> String
+stagedObjDecoders typeName nodes =
+    let
+        initFieldSet =
+            List.take 8 nodes
+
+        fieldSets =
+            nodes
+                |> List.drop 8
+                |> List.Extra.greedyGroupsOf 7
+    in
+    "    let\n"
+        ++ (String.repeat 8 " " ++ "fieldSet0 = \n")
+        ++ (String.repeat 12 " " ++ "Json.Decode.map8 " ++ typeName ++ "\n")
+        ++ objFieldDecoders 16 initFieldSet
+        ++ (fieldSets
+                |> List.indexedMap
+                    (\index fieldSet ->
+                        if List.length fieldSet == 7 && index < List.length fieldSets - 1 then
+                            ("\n\n" ++ String.repeat 8 " " ++ "fieldSet" ++ String.fromInt (index + 1) ++ " =\n")
+                                ++ (String.repeat 12 " " ++ "Json.Decode.map8 (<|)\n")
+                                ++ (String.repeat 16 " " ++ "fieldSet" ++ String.fromInt index ++ "\n")
+                                ++ objFieldDecoders 16 fieldSet
+
+                        else
+                            (if List.length fieldSets == 1 then
+                                "\n"
+
+                             else
+                                ""
+                            )
+                                ++ "    in\n"
+                                ++ (String.repeat 8 " " ++ "Json.Decode.map" ++ String.fromInt (1 + List.length fieldSet) ++ " (<|)\n")
+                                ++ (String.repeat 12 " " ++ "fieldSet" ++ String.fromInt (List.length fieldSets - 1) ++ "\n")
+                                ++ objFieldDecoders 12 fieldSet
+                    )
+                |> String.join "\n"
+           )
+
+
 objDecoders : Path -> List Node -> String
 objDecoders path childNodes =
     let
         typeName =
             typeAliasName path
 
-        fieldDecoders =
-            childNodes
-                |> List.map
-                    (\node ->
-                        String.repeat 8 " "
-                            ++ "(Json.Decode.field \""
-                            ++ (Cons.head <| Cons.reverse node.path)
-                            ++ "\" "
-                            ++ (withApplyArrow <| decoderName node)
-                            ++ ")"
-                    )
-                |> List.sort
-                |> String.join "\n"
+        sortedChildNodes =
+            List.sortBy (adorn << Cons.head << Cons.reverse << .path) childNodes
     in
     ("decode" ++ typeName)
         ++ " : Json.Decode.Decoder "
         ++ typeName
         ++ "\n"
         ++ ("decode" ++ typeName)
-        ++ " = \n    "
-        ++ (case List.length childNodes of
+        ++ " = \n"
+        ++ (case List.length sortedChildNodes of
                 0 ->
-                    "Json.Decode.succeed " ++ typeName
+                    "    Json.Decode.succeed " ++ typeName
 
                 1 ->
-                    "Json.Decode.map " ++ typeName ++ "\n" ++ fieldDecoders
+                    "    Json.Decode.map " ++ typeName ++ "\n" ++ objFieldDecoders 4 sortedChildNodes
 
-                _ ->
-                    "Json.Decode.map"
-                        ++ (String.fromInt <| List.length childNodes)
-                        ++ " "
-                        ++ typeName
-                        ++ "\n"
-                        ++ fieldDecoders
+                fieldCount ->
+                    if fieldCount > 8 then
+                        stagedObjDecoders typeName sortedChildNodes
+
+                    else
+                        "    Json.Decode.map"
+                            ++ (String.fromInt <| List.length sortedChildNodes)
+                            ++ " "
+                            ++ typeName
+                            ++ "\n"
+                            ++ objFieldDecoders 8 sortedChildNodes
            )
 
 
@@ -549,17 +597,6 @@ encoders node =
             ]
 
 
-
--- encode : PlanJson -> Json.Encode.Value
--- encode planJson =
---     Json.Encode.object
---         [ ( "executionTime", Json.Encode.float planJson.executionTime )
---         , ( "planningTime", Json.Encode.float planJson.planningTime )
---         , ( "triggers", Json.Encode.list <| List.map Json.Encode.string planJson.triggers )
---         , ( "plan", encodePlan planJson.plan )
---         ]
-
-
 objEncoders : Path -> List Node -> String
 objEncoders path childNodes =
     let
@@ -573,7 +610,7 @@ objEncoders path childNodes =
                         "( \""
                             ++ (Cons.head <| Cons.reverse node.path)
                             ++ "\", "
-                            ++ encoderName (String.Extra.decapitalize typeName ++ "." ++ (Cons.head <| Cons.reverse node.path)) node
+                            ++ encoderName (String.Extra.decapitalize typeName ++ "." ++ (adorn <| Cons.head <| Cons.reverse node.path)) node
                             ++ " )"
                     )
                 |> List.sort
@@ -710,8 +747,63 @@ encoderName valueName { path, value } =
 
 
 -- TODO: might need to use Result types when generating types and decoders because
--- some JSON may be valid but unworkable (eg. nulls and empty arrays,
--- more than 8 attrs when using plain Json.Decode). But can I decode nulls and arrays
--- to () instead? And for > 8 attrs, maybe just stop at 8 and add a comment to
--- suggest switching to Pipeline?
+-- some JSON may be valid but unworkable (eg. nulls and empty arrays). But can I decode nulls and arrays
+-- to () instead?
 -- TODO: what about Json.Decode.Pipeline? Should I do that before plain decoders?
+-- HELPERS --
+
+
+keywords =
+    Set.fromList
+        [ "if"
+        , "then"
+        , "else"
+        , "case"
+        , "of"
+        , "let"
+        , "in"
+        , "type"
+        , "module"
+        , "where"
+        , "import"
+        , "exposing"
+        , "as"
+        , "port"
+        ]
+
+
+adorn : String -> String
+adorn fieldName =
+    case String.toInt fieldName of
+        Just _ ->
+            "field" ++ fieldName
+
+        Nothing ->
+            fieldName
+                |> String.filter (not << (==) ' ')
+                |> String.toList
+                |> List.map
+                    (\c ->
+                        if not <| Char.isAlphaNum c then
+                            "U" ++ (String.fromInt <| Char.toCode c)
+
+                        else
+                            String.fromChar c
+                    )
+                |> String.concat
+                |> String.Extra.classify
+                |> String.Extra.decapitalize
+                |> (\name ->
+                        if String.isEmpty name then
+                            "field"
+
+                        else
+                            name
+                   )
+                |> (\name ->
+                        if Set.member name keywords then
+                            name ++ "_"
+
+                        else
+                            name
+                   )
