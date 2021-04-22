@@ -93,7 +93,7 @@ view model =
     layout [ width fill, height fill, baseTypeface, Font.size 18 ] <|
         column [ width fill, height fill ]
             [ navBar model
-            , row [ width fill, height fill, padding 10, spacing 20 ]
+            , row [ width fill, height fill, padding 10, spacing 10 ]
                 [ column [ width fill, height fill, spacing 10 ]
                     [ el [ height <| px 40 ] <| el [ centerY ] <| text "JSON sample"
                     , el [ width fill, height fill, htmlAttribute onChangeJson ] <|
@@ -102,6 +102,7 @@ view model =
                                 [ Html.Attributes.attribute "mode" "ace/mode/json"
                                 , Html.Attributes.attribute "wrapmode" "true"
                                 , Html.Attributes.attribute "line-numbers" "false"
+                                , Html.Attributes.attribute "placeholder" "Enter a JSON sample"
                                 , Html.Attributes.attribute "focus" ""
                                 , Html.Attributes.id "json-editor"
                                 , Html.Attributes.style "height" "100%"
@@ -272,16 +273,16 @@ footer : Element Msg
 footer =
     row
         [ width fill
-        , height <| px 51
+        , height <| px 36
         , paddingEach { top = 0, bottom = 0, left = 10, right = 10 }
-        , spacing 20
+        , spacing 10
         , Background.color color.veryPaleBlue
         , Border.color color.blue
         , Border.widthEach { sides | top = 1 }
         , Font.color color.blue
         , Font.size 12
         ]
-        [ link [ centerY, height <| px 50 ]
+        [ link [ centerY, height <| px 25 ]
             { url = "https://korban.net/elm/about"
             , label = image [ width (px 23), height (px 25) ] { src = "https://korban.net/img/logo.png", description = "Korban.net" }
             }
