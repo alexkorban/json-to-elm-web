@@ -1,6 +1,7 @@
 module Json exposing (DecoderString, EncoderString, JsonString, TypeString, convert)
 
 import Array exposing (Array)
+import Char exposing (isDigit)
 import Cons exposing (Cons)
 import Dict exposing (Dict)
 import Json.Decode as Decode exposing (Decoder)
@@ -746,10 +747,6 @@ encoderName valueName { path, value } =
 
 
 
--- TODO: might need to use Result types when generating types and decoders because
--- some JSON may be valid but unworkable (eg. nulls and empty arrays). But can I decode nulls and arrays
--- to () instead?
--- TODO: what about Json.Decode.Pipeline? Should I do that before plain decoders?
 -- HELPERS --
 
 
@@ -774,6 +771,15 @@ keywords =
 
 adorn : String -> String
 adorn fieldName =
+    let
+        startsWithDigit s =
+            s
+                |> String.left 1
+                |> String.any isDigit
+
+        isAllowed c =
+            Char.isAlphaNum c || c == '-' || c == '_'
+    in
     case String.toInt fieldName of
         Just _ ->
             "field" ++ fieldName
@@ -784,7 +790,7 @@ adorn fieldName =
                 |> String.toList
                 |> List.map
                     (\c ->
-                        if not <| Char.isAlphaNum c then
+                        if not <| isAllowed c then
                             "U" ++ (String.fromInt <| Char.toCode c)
 
                         else
@@ -794,8 +800,8 @@ adorn fieldName =
                 |> String.Extra.classify
                 |> String.Extra.decapitalize
                 |> (\name ->
-                        if String.isEmpty name then
-                            "field"
+                        if String.isEmpty name || startsWithDigit name then
+                            "field" ++ name
 
                         else
                             name

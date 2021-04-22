@@ -4,9 +4,12 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "compile": "elm make src/Main.elm --optimize --output elm-max.js",
     "compile-cli": "elm make src/CommandLine.elm --output ./cli.js",
     "dev": "elm-live src/Main.elm -u --dir ./public -- --debug --output public/elm.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "minify": "terser elm-max.js --compress 'pure_funcs=\"F2,F3,F4,F5,F6,F7,F8,F9,A2,A3,A4,A5,A6,A7,A8,A9\",pure_getters,keep_fargs=false,unsafe_comps,unsafe' | terser --mangle --output=public/elm.js",
+    "netlify-build": "npm i elm@latest-0.19.1 && npm i terser && npm run compile && npm run minify && rm public/index.html",
+    "test": "node run-tests.js"
   },
   "author": "",
   "license": "UNLICENCED",

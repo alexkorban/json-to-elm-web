@@ -1,0 +1,129 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "route": {
+        "type": "object",
+        "properties": {
+          "distance": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "time": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "energy": {
+            "type": "number",
+            "minimum": 0
+          },
+          "steps": {
+            "type": "array",
+            "items": [
+              {
+                "type": "object",
+                "properties": {
+                  "distance": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "energy": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "travelTime": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "chargeTime": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "ferryTime": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "polyline": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "distance",
+                  "energy",
+                  "travelTime",
+                  "chargeTime",
+                  "ferryTime",
+                  "polyline"
+                ]
+              }
+            ]
+          }
+        },
+        "required": [
+          "distance",
+          "time",
+          "energy",
+          "steps"
+        ]
+      },
+      "startTimestamp": {
+        "type": "integer"
+      },
+      "debug": {
+        "type": "boolean"
+      },
+      "vehicle": {
+        "type": "object",
+        "properties": {
+          "hasThermalManagement": {
+            "type": "boolean"
+          },
+          "batteryAvailable": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "mass": {
+            "type": "integer",
+            "minimum": 10,
+            "maximum": 5000
+          },
+          "crr": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 0.3
+          },
+          "cda": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1.6
+          },
+          "passengerCount": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20
+          },
+          "targetTemp": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 40
+          }
+        },
+        "required": [
+          "hasThermalManagement",
+          "batteryAvailable",
+          "mass",
+          "crr",
+          "cda",
+          "passengerCount",
+          "targetTemp"
+        ]
+      }
+    },
+    "required": [
+      "route",
+      "startTimestamp",
+      "vehicle"
+    ]
+  }
