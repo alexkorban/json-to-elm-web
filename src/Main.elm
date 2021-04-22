@@ -29,7 +29,6 @@ type alias Model =
     { debounce : Debounce String
     , elmResult : Output
     , jsonText : String
-    , urlPrefix : String
     , windowSize : Size
     }
 
@@ -47,8 +46,7 @@ type Msg
 
 
 type alias Flags =
-    { urlPrefix : String
-    , windowHeight : Int
+    { windowHeight : Int
     , windowWidth : Int
     }
 
@@ -69,7 +67,6 @@ init flags =
     ( { debounce = Debounce.init
       , elmResult = None
       , jsonText = ""
-      , urlPrefix = flags.urlPrefix
       , windowSize = { height = flags.windowHeight, width = flags.windowWidth }
       }
     , Cmd.none

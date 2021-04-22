@@ -18,7 +18,6 @@
         window.app = 
             Elm.Main.init({
                 flags: {  
-                    urlPrefix: "",
                     windowHeight: window.innerHeight, 
                     windowWidth: window.innerWidth
                 },
@@ -26,12 +25,10 @@
             })
             
         app.ports.copySignal.subscribe(() => {
-                navigator.clipboard.writeText(document.getElementById("elm-editor").editorText).then(() => {
-                    console.log('Async: Copying to clipboard was successful!')
-                }, (err) => {
-                    console.error('Async: Could not copy text: ', err)
-                })   
-            })
+            navigator.clipboard.writeText(document.getElementById("elm-editor").editorText).catch((err) => {
+                console.error("Could not copy text: ", err)
+            })   
+        })
     </script>
 </body>
 </html>
