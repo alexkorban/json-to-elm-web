@@ -8,14 +8,11 @@ import Element.Background as Background
 import Element.Border as Border
 import Element.Font as Font
 import Element.Input as Input
-import Element.Keyed as Keyed
 import Html exposing (Html)
 import Html.Attributes
 import Html.Events
-import Html.Keyed
 import Json
 import Json.Decode
-import Json.Encode
 import Task
 
 
