@@ -10,7 +10,7 @@ template.innerHTML = `
         }
         #ace-editor-container {
             height: 100%;
-            margin-top: -60px;
+            margin-top: -53px;
             border: 1px solid #e0e0e0;
             border-radius: 4px;
             font-family: "Inconsolata", "Monaco", "Menlo", "Ubuntu Mono", "Consolas", "source-code-pro", monospace;

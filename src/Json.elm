@@ -45,15 +45,23 @@ type alias Node =
     }
 
 
-convert : JsonString -> Result String ( List TypeString, List DecoderString, List EncoderString )
-convert jsonStr =
+convert : String -> JsonString -> Result String ( List TypeString, List DecoderString, List EncoderString )
+convert rootTypeName jsonStr =
     case parse jsonStr of
         Err err ->
             Err <| Decode.errorToString err
 
         Ok tree ->
             tree
-                |> annotate (Cons.singleton "Root")
+                |> annotate
+                    (Cons.singleton
+                        (if String.isEmpty rootTypeName then
+                            "Root"
+
+                         else
+                            rootTypeName
+                        )
+                    )
                 --|> Debug.log "tree"
                 |> (\t -> ( typesAndAliases t, decoders t, encoders t ))
                 |> Ok
@@ -351,10 +359,14 @@ decoders node =
                    )
 
         _ ->
-            [ "decodeRoot : Json.Decode.Decoder "
+            [ "decode"
+                ++ typeAliasName node.path
+                ++ " : Json.Decode.Decoder "
                 ++ elmType node
                 ++ "\n"
-                ++ "decodeRoot = \n    "
+                ++ "decode"
+                ++ typeAliasName node.path
+                ++ " = \n    "
                 ++ decoderName node
             ]
 
@@ -577,6 +589,10 @@ decoderName { path, value } =
 
 encoders : Node -> List String
 encoders node =
+    let
+        typeName =
+            typeAliasName node.path
+    in
     case node.value of
         JList nodes ->
             listEncoders node nodes
@@ -590,11 +606,10 @@ encoders node =
                    )
 
         _ ->
-            [ "encodeRoot : "
-                ++ elmType node
-                ++ " -> Json.Encode.Value\n"
-                ++ "encodeRoot root =\n    "
-                ++ encoderName "root" node
+            [ ("encode" ++ typeName ++ " : " ++ elmType node ++ " -> Json.Encode.Value\n")
+                ++ ("encode" ++ typeName ++ " " ++ String.Extra.decapitalize typeName ++ " =\n")
+                ++ "    "
+                ++ encoderName (String.Extra.decapitalize typeName) node
             ]
 
 

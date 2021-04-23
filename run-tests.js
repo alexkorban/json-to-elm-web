@@ -264,12 +264,12 @@ main =
 
 trip : String -> String 
 trip json =
-    case Json.Decode.decodeString decodeRoot json of 
+    case Json.Decode.decodeString decodeSample json of 
         Err err -> 
             Json.Decode.errorToString err 
 
         Ok value -> 
-            Json.Encode.encode 4 <| encodeRoot value     
+            Json.Encode.encode 4 <| encodeSample value     
     `
 
     Fs.writeFileSync(Path.join(__dirname, "test", `Test${elm.id}.elm`), test)

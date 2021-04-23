@@ -72,7 +72,7 @@ update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         Input ( id, inputStr ) ->
-            ( model, output (resultAsRecord id inputStr <| Json.convert inputStr) )
+            ( model, output (resultAsRecord id inputStr <| Json.convert "Sample" inputStr) )
 
 
 subscriptions : Model -> Sub Msg

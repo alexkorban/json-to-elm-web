@@ -2,15 +2,17 @@ port module Main exposing (main)
 
 import Browser
 import Browser.Events exposing (onResize)
+import Char exposing (isAlphaNum)
 import Debounce exposing (Debounce)
 import Element exposing (..)
 import Element.Background as Background
 import Element.Border as Border
+import Element.Events as Events
 import Element.Font as Font
 import Element.Input as Input
 import Html exposing (Html)
 import Html.Attributes
-import Html.Events
+import Html.Events exposing (onClick)
 import Json
 import Json.Decode
 import Task
@@ -26,9 +28,11 @@ type Output
 
 
 type alias Model =
-    { debounce : Debounce String
+    { debounce : Debounce ( TypeName, JsonString )
     , elmResult : Output
-    , jsonText : String
+    , jsonText : JsonString
+    , showSettings : Bool
+    , topLevelTypeName : String
     , windowSize : Size
     }
 
@@ -37,12 +41,22 @@ type alias Size =
     { height : Int, width : Int }
 
 
+type alias TypeName =
+    String
+
+
+type alias JsonString =
+    String
+
+
 type Msg
     = DebouncerProducedMessage Debounce.Msg
-    | DebouncerRequestedConversion String
+    | DebouncerRequestedConversion ( TypeName, JsonString )
     | UserPressedCopyButton
+    | UserPressedSettingsButton
     | UserResizedWindow Int Int
     | UserTypedJson String
+    | UserTypedTopLevelTypeName String
 
 
 type alias Flags =
@@ -67,6 +81,8 @@ init flags =
     ( { debounce = Debounce.init
       , elmResult = None
       , jsonText = ""
+      , showSettings = False
+      , topLevelTypeName = "Root"
       , windowSize = { height = flags.windowHeight, width = flags.windowWidth }
       }
     , Cmd.none
@@ -92,7 +108,7 @@ view model =
             [ navBar model
             , row [ width fill, height fill, padding 10, spacing 10 ]
                 [ column [ width fill, height fill, spacing 10 ]
-                    [ el [ height <| px 40 ] <| el [ centerY ] <| text "JSON sample"
+                    [ el [ height <| px 30 ] <| el [ centerY ] <| text "JSON sample"
                     , el [ width fill, height fill, htmlAttribute onChangeJson ] <|
                         html <|
                             Html.node "ace-editor"
@@ -107,8 +123,8 @@ view model =
                                 ]
                                 []
                     ]
-                , column [ width fill, height fill, spacing 10 ]
-                    [ row [ width fill, height <| px 40 ]
+                , column [ width fill, height fill ]
+                    [ row [ width fill, height <| px 40, spacing 5 ]
                         [ el [ centerY ] <| text "Elm decoders and encoders"
                         , Input.button
                             [ paddingEach { left = 20, right = 20, top = 5, bottom = 7 }
@@ -129,7 +145,50 @@ view model =
                                 ]
                             ]
                             { onPress = Just UserPressedCopyButton, label = el [ centerY ] <| text "Copy" }
+                        , el
+                            [ paddingEach { left = 20, right = 20, top = if_ model.showSettings 8 5, bottom = if_ model.showSettings 12 7 }
+                            , Background.color color.pale
+                            , Border.width 1
+                            , if_ model.showSettings (Border.roundEach { topLeft = 6, topRight = 6, bottomLeft = 0, bottomRight = 0 }) (Border.rounded 6)
+                            , Border.widthEach { top = 1, left = 1, right = 1, bottom = if_ model.showSettings 0 1 }
+                            , Border.color color.lightGrey
+                            , if_ model.showSettings alignBottom centerY
+                            , if_ model.showSettings (below <| el [ width fill, height <| px 2, Background.color color.pale ] none) attrNone
+                            , pointer
+                            , Events.onClick UserPressedSettingsButton
+                            , htmlAttribute <| Html.Attributes.style "-webkit-user-select" "none"
+                            , htmlAttribute <| Html.Attributes.style "-moz-user-select" "none"
+                            , htmlAttribute <| Html.Attributes.style "-ms-user-select" "none"
+                            ]
+                          <|
+                            text "Settings"
                         ]
+                    , if model.showSettings then
+                        let
+                            nameIsValid =
+                                isValidTypeName model.topLevelTypeName
+                        in
+                        el
+                            [ width fill
+                            , padding 10
+                            , Background.color color.pale
+                            , Border.color color.lightGrey
+                            , Border.width 1
+                            , Border.roundEach { topLeft = 6, topRight = 0, bottomLeft = 6, bottomRight = 6 }
+                            ]
+                        <|
+                            row []
+                                [ Input.text [ padding 5, if_ nameIsValid attrNone (Border.color color.burntOrange) ]
+                                    { onChange = UserTypedTopLevelTypeName
+                                    , text = model.topLevelTypeName
+                                    , placeholder = Just <| Input.placeholder [] <| text "\"Root\" if unspecified"
+                                    , label = Input.labelLeft [ if_ nameIsValid attrNone (Font.color color.burntOrange), padding 5 ] <| text "Top level type name"
+                                    }
+                                ]
+
+                      else
+                        none
+                    , if_ model.showSettings (el [ height <| px 5 ] none) none
                     , el [ width fill, height fill ] <|
                         html <|
                             Html.node "ace-editor"
@@ -142,11 +201,18 @@ view model =
                                             Code ( typeStrs, decoderStrs, encoderStrs ) ->
                                                 [ Html.Attributes.attribute "mode" "ace/mode/elm"
                                                 , Html.Attributes.attribute "text" <|
-                                                    String.join "\n\n\n"
-                                                        [ String.join "\n\n\n" typeStrs
-                                                        , String.join "\n\n\n" decoderStrs
-                                                        , String.join "\n\n\n" encoderStrs
-                                                        ]
+                                                    if List.isEmpty typeStrs then
+                                                        String.join "\n\n\n"
+                                                            [ String.join "\n\n\n" decoderStrs
+                                                            , String.join "\n\n\n" encoderStrs
+                                                            ]
+
+                                                    else
+                                                        String.join "\n\n\n"
+                                                            [ String.join "\n\n\n" typeStrs
+                                                            , String.join "\n\n\n" decoderStrs
+                                                            , String.join "\n\n\n" encoderStrs
+                                                            ]
                                                 ]
 
                                             Error err ->
@@ -183,12 +249,12 @@ update msg model =
             , cmd
             )
 
-        DebouncerRequestedConversion s ->
-            if String.isEmpty s then
+        DebouncerRequestedConversion ( topLevelTypeName, jsonText ) ->
+            if String.isEmpty jsonText then
                 ( { model | elmResult = None }, Cmd.none )
 
             else
-                case Json.convert s of
+                case Json.convert topLevelTypeName jsonText of
                     Err err ->
                         ( { model | elmResult = Error err }, Cmd.none )
 
@@ -198,13 +264,16 @@ update msg model =
         UserPressedCopyButton ->
             ( model, copySignal () )
 
+        UserPressedSettingsButton ->
+            ( { model | showSettings = not model.showSettings }, Cmd.none )
+
         UserResizedWindow width height ->
             ( { model | windowSize = { height = height, width = width } }, Cmd.none )
 
         UserTypedJson s ->
             let
                 ( debounce, cmd ) =
-                    Debounce.push debounceConfig s model.debounce
+                    Debounce.push debounceConfig ( model.topLevelTypeName, s ) model.debounce
             in
             ( { model
                 | jsonText = s
@@ -212,6 +281,22 @@ update msg model =
               }
             , cmd
             )
+
+        UserTypedTopLevelTypeName name ->
+            if isValidTypeName name then
+                let
+                    ( debounce, cmd ) =
+                        Debounce.push debounceConfig ( name, model.jsonText ) model.debounce
+                in
+                ( { model
+                    | topLevelTypeName = name
+                    , debounce = debounce
+                  }
+                , cmd
+                )
+
+            else
+                ( { model | topLevelTypeName = name }, Cmd.none )
 
 
 attrNone =
@@ -296,6 +381,20 @@ main =
         , update = update
         , subscriptions = subscriptions
         }
+
+
+if_ : Bool -> a -> a -> a
+if_ predicate lhs rhs =
+    if predicate then
+        lhs
+
+    else
+        rhs
+
+
+isValidTypeName : TypeName -> Bool
+isValidTypeName name =
+    String.all (\c -> Char.isAlphaNum c || c == '_') name && (String.all Char.isAlpha <| String.left 1 name)
 
 
 color =
