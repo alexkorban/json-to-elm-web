@@ -26,6 +26,8 @@ const jsonSamples = R.concat([
             "if": "then",
             "null": false,
             "cards": [],
+            "floaty": 1.23,
+            "inty": 1.0000000000000001,
             "_isActive": true
         }, 
         "prefs": [

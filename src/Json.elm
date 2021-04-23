@@ -13,6 +13,7 @@ import String.Extra
 type JsonValue
     = JString String
     | JFloat Float
+    | JInt Int
     | JBool Bool
     | JList (List Node)
     | JObj (List Node)
@@ -81,6 +82,7 @@ jsonDecoder =
     in
     Decode.oneOf
         [ Decode.map (makeNode << JString) Decode.string
+        , Decode.map (makeNode << JInt) Decode.int
         , Decode.map (makeNode << JFloat) Decode.float
         , Decode.map (makeNode << JBool) Decode.bool
         , Decode.map (makeNode << JList) (Decode.list (Decode.lazy (\_ -> jsonDecoder)))
@@ -118,18 +120,6 @@ annotate pathSoFar node =
                 objNode
     in
     case node.value of
-        JString _ ->
-            { node | path = pathSoFar }
-
-        JFloat _ ->
-            { node | path = pathSoFar }
-
-        JBool _ ->
-            { node | path = pathSoFar }
-
-        JNull ->
-            { node | path = pathSoFar }
-
         JList children ->
             { node
                 | path = pathSoFar
@@ -141,6 +131,9 @@ annotate pathSoFar node =
                 | path = pathSoFar
                 , value = JObj <| List.map annotateObj children
             }
+
+        _ ->
+            { node | path = pathSoFar }
 
 
 
@@ -208,6 +201,9 @@ elmType { path, value } =
 
         JFloat _ ->
             "Float"
+
+        JInt _ ->
+            "Int"
 
         JString _ ->
             "String"
@@ -564,6 +560,9 @@ listDecoderName path nodes =
 decoderName : Node -> String
 decoderName { path, value } =
     case value of
+        JInt _ ->
+            "Json.Decode.int"
+
         JFloat _ ->
             "Json.Decode.float"
 
@@ -746,6 +745,9 @@ encoderName : String -> Node -> String
 encoderName valueName { path, value } =
     String.trimRight <|
         case value of
+            JInt _ ->
+                "Json.Encode.int " ++ valueName
+
             JFloat _ ->
                 "Json.Encode.float " ++ valueName
 
