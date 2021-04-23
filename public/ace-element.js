@@ -139,14 +139,20 @@ window.customElements.define("ace-editor", class AceEditor extends HTMLElement {
         }
 
         if (this.hasAttribute("focus"))
-            editor.focus()
+            this.editor.focus()
         else 
             ;
+
+        this.resizeObserver = new ResizeObserver(entries => {
+            editor.resize()
+        })
+        this.resizeObserver.observe(container)
 
         this._attached = true
     }
 
     disconnectedCallback() {
+        this.resizeObserver.unobserve(this.container)
         this._attached = false
     }
 

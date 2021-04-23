@@ -108,7 +108,7 @@ view model =
             [ navBar model
             , row [ width fill, height fill, padding 10, spacing 10 ]
                 [ column [ width fill, height fill, spacing 10 ]
-                    [ el [ height <| px 30 ] <| el [ centerY ] <| text "JSON sample"
+                    [ el [ alignBottom, height <| px 30 ] <| el [ alignBottom ] <| text "JSON sample"
                     , el [ width fill, height fill, htmlAttribute onChangeJson ] <|
                         html <|
                             Html.node "ace-editor"
@@ -125,7 +125,7 @@ view model =
                     ]
                 , column [ width fill, height fill ]
                     [ row [ width fill, height <| px 40, spacing 5 ]
-                        [ el [ centerY ] <| text "Elm decoders and encoders"
+                        [ el [ height <| px 30 ] <| el [ centerY ] <| text "Elm decoders and encoders"
                         , Input.button
                             [ paddingEach { left = 20, right = 20, top = 5, bottom = 7 }
                             , alignRight
