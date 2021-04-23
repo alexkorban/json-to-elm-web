@@ -231,7 +231,16 @@ objTypeAlias path nodes =
             )
         |> List.sort
         |> String.join "\n    , "
-        |> (\fieldStr -> "type alias " ++ typeAliasName path ++ " =\n    { " ++ fieldStr ++ "\n    }")
+        |> (\fieldStr ->
+                ("type alias " ++ typeAliasName path ++ " =\n")
+                    ++ "    "
+                    ++ (if String.isEmpty fieldStr then
+                            "{}"
+
+                        else
+                            "{ " ++ fieldStr ++ "\n    }"
+                       )
+           )
 
 
 isObj : JsonValue -> Bool
@@ -482,26 +491,21 @@ stagedObjDecoders typeName nodes =
         ++ (String.repeat 8 " " ++ "fieldSet0 = \n")
         ++ (String.repeat 12 " " ++ "Json.Decode.map8 " ++ typeName ++ "\n")
         ++ objFieldDecoders 16 initFieldSet
+        ++ "\n"
         ++ (fieldSets
                 |> List.indexedMap
                     (\index fieldSet ->
                         if List.length fieldSet == 7 && index < List.length fieldSets - 1 then
-                            ("\n\n" ++ String.repeat 8 " " ++ "fieldSet" ++ String.fromInt (index + 1) ++ " =\n")
+                            ("\n" ++ String.repeat 8 " " ++ "fieldSet" ++ String.fromInt (index + 1) ++ " =\n")
                                 ++ (String.repeat 12 " " ++ "Json.Decode.map8 (<|)\n")
                                 ++ (String.repeat 16 " " ++ "fieldSet" ++ String.fromInt index ++ "\n")
                                 ++ objFieldDecoders 16 fieldSet
 
                         else
-                            (if List.length fieldSets == 1 then
-                                "\n"
-
-                             else
-                                ""
-                            )
-                                ++ "    in\n"
-                                ++ (String.repeat 8 " " ++ "Json.Decode.map" ++ String.fromInt (1 + List.length fieldSet) ++ " (<|)\n")
-                                ++ (String.repeat 12 " " ++ "fieldSet" ++ String.fromInt (List.length fieldSets - 1) ++ "\n")
-                                ++ objFieldDecoders 12 fieldSet
+                            "    in\n"
+                                ++ (String.repeat 4 " " ++ "Json.Decode.map" ++ String.fromInt (1 + List.length fieldSet) ++ " (<|)\n")
+                                ++ (String.repeat 8 " " ++ "fieldSet" ++ String.fromInt (List.length fieldSets - 1) ++ "\n")
+                                ++ objFieldDecoders 8 fieldSet
                     )
                 |> String.join "\n"
            )
@@ -527,7 +531,7 @@ objDecoders path childNodes =
                     "    Json.Decode.succeed " ++ typeName
 
                 1 ->
-                    "    Json.Decode.map " ++ typeName ++ "\n" ++ objFieldDecoders 4 sortedChildNodes
+                    "    Json.Decode.map " ++ typeName ++ "\n" ++ objFieldDecoders 8 sortedChildNodes
 
                 fieldCount ->
                     if fieldCount > 8 then
@@ -635,9 +639,13 @@ objEncoders path childNodes =
     ("encode" ++ typeName ++ " : " ++ typeName ++ " -> Json.Encode.Value\n")
         ++ ("encode" ++ typeName ++ " " ++ String.Extra.decapitalize typeName ++ " = \n")
         ++ "    Json.Encode.object\n"
-        ++ (String.repeat 8 " " ++ "[ ")
-        ++ fieldEncoders
-        ++ ("\n" ++ String.repeat 8 " " ++ "]")
+        ++ String.repeat 8 " "
+        ++ (if String.isEmpty fieldEncoders then
+                "[]"
+
+            else
+                "[ " ++ fieldEncoders ++ ("\n" ++ String.repeat 8 " " ++ "]")
+           )
 
 
 listEncoders : Node -> List Node -> List String
