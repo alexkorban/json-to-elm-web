@@ -148,6 +148,7 @@ view model =
                         , el
                             [ paddingEach { left = 20, right = 20, top = if_ model.showSettings 8 5, bottom = if_ model.showSettings 12 7 }
                             , Background.color color.pale
+                            , Font.color color.blue
                             , Border.width 1
                             , if_ model.showSettings (Border.roundEach { topLeft = 6, topRight = 6, bottomLeft = 0, bottomRight = 0 }) (Border.rounded 6)
                             , Border.widthEach { top = 1, left = 1, right = 1, bottom = if_ model.showSettings 0 1 }
@@ -174,7 +175,7 @@ view model =
                             , Background.color color.pale
                             , Border.color color.lightGrey
                             , Border.width 1
-                            , Border.roundEach { topLeft = 6, topRight = 0, bottomLeft = 6, bottomRight = 6 }
+                            , Border.roundEach { topLeft = 4, topRight = 0, bottomLeft = 4, bottomRight = 4 }
                             ]
                         <|
                             row []
