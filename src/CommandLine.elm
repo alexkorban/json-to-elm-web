@@ -1,6 +1,6 @@
 port module CommandLine exposing (main)
 
-import Json
+import Json exposing (DecoderStyle)
 import Platform exposing (Program)
 
 
@@ -9,12 +9,18 @@ type alias Id =
 
 
 type alias InputType =
-    ( Id, Json.JsonString )
+    { id : String
+    , json : Json.JsonString
+    , namingStyle : String
+    , decoderStyle : String
+    }
 
 
 type alias OutputType =
     { id : String
     , json : String
+    , namingStyle : String
+    , decoderStyle : String
     , error : String
     , types : List Json.TypeString
     , decoders : List Json.DecoderString
@@ -55,24 +61,45 @@ init _ =
 
 
 resultAsRecord :
-    Id
-    -> Json.JsonString
+    InputType
     -> Result String ( List Json.TypeString, List Json.DecoderString, List Json.EncoderString )
     -> OutputType
-resultAsRecord id jsonStr res =
+resultAsRecord { id, json, namingStyle, decoderStyle } res =
     case res of
         Err err ->
-            { id = id, json = jsonStr, error = err, types = [], decoders = [], encoders = [] }
+            { id = id, json = json, namingStyle = namingStyle, decoderStyle = decoderStyle, error = err, types = [], decoders = [], encoders = [] }
 
         Ok ( types, decoders, encoders ) ->
-            { id = id, json = jsonStr, error = "", types = types, decoders = decoders, encoders = encoders }
+            { id = id, json = json, namingStyle = namingStyle, decoderStyle = decoderStyle, error = "", types = types, decoders = decoders, encoders = encoders }
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        Input ( id, inputStr ) ->
-            ( model, output (resultAsRecord id inputStr <| Json.convert "Sample" inputStr) )
+        Input i ->
+            let
+                namingStyle =
+                    case i.namingStyle of
+                        "noun" ->
+                            Json.NounNaming
+
+                        _ ->
+                            Json.VerbNaming
+
+                decoderStyle =
+                    case i.decoderStyle of
+                        "plain" ->
+                            Json.PlainDecoders
+
+                        _ ->
+                            Json.PipelineDecoders
+            in
+            ( model
+            , output
+                (resultAsRecord i <|
+                    Json.convert { rootTypeName = "Sample", namingStyle = namingStyle, decoderStyle = decoderStyle } i.json
+                )
+            )
 
 
 subscriptions : Model -> Sub Msg

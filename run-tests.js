@@ -182,6 +182,8 @@ null
 `
 ], R.map((fileName) => Fs.readFileSync(fileName).toString(), Glob.sync("json-samples/*.json")))
 
+const paramSets = [["plain", "noun"], ["plain", "verb"]]
+
 const compileElm = (sourceFileNames, outputName) => {
     const args = ["make", sourceFileNames, "--optimize", "--output", `generated/${outputName}.js`]
 
@@ -212,20 +214,24 @@ const convert = () => {
         // Get data from the worker
         generator.ports.output.subscribe((data) => {
             results.push(data)
-            if (R.length(results) == R.length(jsonSamples))
+            if (R.length(results) == R.length(jsonSamples) * R.length(paramSets))
                 resolve(results)
             else 
                 ; // Keep waiting for more data to fall out of the port
         })
 
         // Send data to the worker
-        R.addIndex(R.forEach)((json, i) => generator.ports.input.send([`${i}`, json]), jsonSamples)
+        R.addIndex(R.forEach)((json, i) => {
+            R.forEach((paramSet) => {
+                generator.ports.input.send({id: `${i}`, json, decoderStyle: paramSet[0], namingStyle: paramSet[1]})
+            }, paramSets)
+        }, jsonSamples)
     })
 }
 
 const writeTest = (elm) => {
     const test = `
-port module Test${elm.id} exposing (main)
+port module Test${elm.id}_${elm.decoderStyle}_${elm.namingStyle} exposing (main)
 
 import Json.Decode
 import Json.Encode
@@ -235,7 +241,7 @@ import Platform exposing (Program)
 -- ${elm.json.split("\n").join("\n--")}
 
 
-port output${elm.id} : String -> Cmd msg
+port output${elm.id}_${elm.decoderStyle}_${elm.namingStyle} : String -> Cmd msg
 
 
 type alias Flags = String
@@ -252,7 +258,7 @@ ${elm.encoders.join("\n\n\n")}
 
 init : Flags -> ( (), Cmd msg )
 init json =
-    ( (), output${elm.id} <| trip json )
+    ( (), output${elm.id}_${elm.decoderStyle}_${elm.namingStyle} <| trip json )
 
 
 main : Program Flags () msg
@@ -266,15 +272,15 @@ main =
 
 trip : String -> String 
 trip json =
-    case Json.Decode.decodeString decodeSample json of 
+    case Json.Decode.decodeString ${elm.namingStyle == "noun" ? "sampleDecoder" : "decodeSample"} json of 
         Err err -> 
             Json.Decode.errorToString err 
 
         Ok value -> 
-            Json.Encode.encode 4 <| encodeSample value     
+            Json.Encode.encode 4 <| ${elm.namingStyle == "noun" ? "encoded" : "encode"}Sample value     
     `
 
-    Fs.writeFileSync(Path.join(__dirname, "test", `Test${elm.id}.elm`), test)
+    Fs.writeFileSync(Path.join(__dirname, "test", `Test${elm.id}-${elm.decoderStyle}-${elm.namingStyle}.elm`), test)
 }
 
 
@@ -305,18 +311,21 @@ convert()
     const TestElm = require("./generated/tests.js").Elm
 
     R.addIndex(R.map)((jsonSample, i) => {
-        TestElm[`Test${i}`].init({flags: jsonSample})
-            .ports[`output${i}`]
+        R.forEach((paramSet) => {
+            const testName = `Test${i}-${paramSet[0]}-${paramSet[1]}`
+            TestElm[R.replace(/-/g, "_", testName)].init({flags: jsonSample})
+            .ports[`output${i}_${paramSet[0]}_${paramSet[1]}`]
             .subscribe((result) => {
                 if (R.equals(JSON.parse(jsonSample), JSON.parse(result))) {
-                    console.log(Chalk.green(`✅ Test${i}`))    
+                    console.log(Chalk.green(`✅ ${testName}`))    
                 }
                 else {
-                    console.log(Chalk.red(`❌ Test${i}`))    
+                    console.log(Chalk.red(`❌ ${testName}`))    
                     console.log("Expected: \n\n" + Chalk.green(jsonSample))
                     console.log("\n\nActual: \n\n" + Chalk.red(result))
                 }
             })                
+        }, paramSets)
     }, jsonSamples)
     
 })

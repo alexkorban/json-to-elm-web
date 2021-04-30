@@ -31,6 +31,7 @@ type alias Model =
     { debounce : Debounce ( TypeName, JsonString )
     , elmResult : Output
     , jsonText : JsonString
+    , namingStyle : Json.NamingStyle
     , showSettings : Bool
     , topLevelTypeName : String
     , windowSize : Size
@@ -55,6 +56,7 @@ type Msg
     | UserPressedCopyButton
     | UserPressedSettingsButton
     | UserResizedWindow Int Int
+    | UserSelectedNamingStyle Json.NamingStyle
     | UserTypedJson String
     | UserTypedTopLevelTypeName String
 
@@ -63,6 +65,12 @@ type alias Flags =
     { windowHeight : Int
     , windowWidth : Int
     }
+
+
+type SelectorButtonPosition
+    = First
+    | Mid
+    | Last
 
 
 
@@ -81,6 +89,7 @@ init flags =
     ( { debounce = Debounce.init
       , elmResult = None
       , jsonText = ""
+      , namingStyle = Json.NounNaming
       , showSettings = False
       , topLevelTypeName = "Root"
       , windowSize = { height = flags.windowHeight, width = flags.windowWidth }
@@ -92,6 +101,54 @@ init flags =
 subscriptions : Model -> Sub Msg
 subscriptions _ =
     onResize UserResizedWindow
+
+
+selectorButton : SelectorButtonPosition -> String -> Input.OptionState -> Element Msg
+selectorButton position label state =
+    let
+        borders =
+            case position of
+                First ->
+                    { left = 1, right = 1, top = 1, bottom = 1 }
+
+                Mid ->
+                    { left = 0, right = 1, top = 1, bottom = 1 }
+
+                Last ->
+                    { left = 0, right = 1, top = 1, bottom = 1 }
+
+        corners =
+            case position of
+                First ->
+                    { topLeft = 6, bottomLeft = 6, topRight = 0, bottomRight = 0 }
+
+                Mid ->
+                    { topLeft = 0, bottomLeft = 0, topRight = 0, bottomRight = 0 }
+
+                Last ->
+                    { topLeft = 0, bottomLeft = 0, topRight = 6, bottomRight = 6 }
+    in
+    el
+        [ paddingEach { left = 10, right = 10, top = 5, bottom = 5 }
+        , Border.roundEach corners
+        , Border.widthEach borders
+        , Border.color color.blue
+        , Background.color <|
+            if state == Input.Selected then
+                color.lightBlue
+
+            else
+                color.white
+        , Font.color <|
+            if state == Input.Selected then
+                color.white
+
+            else
+                color.blue
+        ]
+    <|
+        el [ centerX, centerY ] <|
+            text label
 
 
 view : Model -> Html Msg
@@ -176,14 +233,25 @@ view model =
                             , Border.color color.lightGrey
                             , Border.width 1
                             , Border.roundEach { topLeft = 4, topRight = 0, bottomLeft = 4, bottomRight = 4 }
+                            , Font.size 16
                             ]
                         <|
-                            row []
+                            column [ spacing 10 ]
                                 [ Input.text [ padding 5, if_ nameIsValid attrNone (Border.color color.burntOrange) ]
                                     { onChange = UserTypedTopLevelTypeName
                                     , text = model.topLevelTypeName
                                     , placeholder = Just <| Input.placeholder [] <| text "\"Root\" if unspecified"
                                     , label = Input.labelLeft [ if_ nameIsValid attrNone (Font.color color.burntOrange), padding 5 ] <| text "Top level type name"
+                                    }
+                                , Input.radioRow []
+                                    { onChange = UserSelectedNamingStyle
+                                    , selected = Just model.namingStyle
+                                    , label =
+                                        Input.labelLeft [ padding 5 ] <| text "Naming style"
+                                    , options =
+                                        [ Input.optionWith Json.NounNaming <| selectorButton First "Noun"
+                                        , Input.optionWith Json.VerbNaming <| selectorButton Last "Verb"
+                                        ]
                                     }
                                 ]
 
@@ -255,7 +323,7 @@ update msg model =
                 ( { model | elmResult = None }, Cmd.none )
 
             else
-                case Json.convert topLevelTypeName jsonText of
+                case Json.convert { rootTypeName = topLevelTypeName, decoderStyle = Json.PlainDecoders, namingStyle = model.namingStyle } jsonText of
                     Err err ->
                         ( { model | elmResult = Error err }, Cmd.none )
 
@@ -270,6 +338,13 @@ update msg model =
 
         UserResizedWindow width height ->
             ( { model | windowSize = { height = height, width = width } }, Cmd.none )
+
+        UserSelectedNamingStyle namingStyle ->
+            let
+                ( debounce, cmd ) =
+                    Debounce.push debounceConfig ( model.topLevelTypeName, model.jsonText ) model.debounce
+            in
+            ( { model | debounce = debounce, namingStyle = namingStyle }, cmd )
 
         UserTypedJson s ->
             let
