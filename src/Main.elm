@@ -29,6 +29,7 @@ type Output
 
 type alias Model =
     { debounce : Debounce ( TypeName, JsonString )
+    , decoderStyle : Json.DecoderStyle
     , elmResult : Output
     , jsonText : JsonString
     , namingStyle : Json.NamingStyle
@@ -56,6 +57,7 @@ type Msg
     | UserPressedCopyButton
     | UserPressedSettingsButton
     | UserResizedWindow Int Int
+    | UserSelectedDecoderStyle Json.DecoderStyle
     | UserSelectedNamingStyle Json.NamingStyle
     | UserTypedJson String
     | UserTypedTopLevelTypeName String
@@ -87,6 +89,7 @@ debounceConfig =
 init : Flags -> ( Model, Cmd Msg )
 init flags =
     ( { debounce = Debounce.init
+      , decoderStyle = Json.PlainDecoders
       , elmResult = None
       , jsonText = ""
       , namingStyle = Json.NounNaming
@@ -243,16 +246,28 @@ view model =
                                     , placeholder = Just <| Input.placeholder [] <| text "\"Root\" if unspecified"
                                     , label = Input.labelLeft [ if_ nameIsValid attrNone (Font.color color.burntOrange), padding 5 ] <| text "Top level type name"
                                     }
-                                , Input.radioRow []
-                                    { onChange = UserSelectedNamingStyle
-                                    , selected = Just model.namingStyle
-                                    , label =
-                                        Input.labelLeft [ padding 5 ] <| text "Naming style"
-                                    , options =
-                                        [ Input.optionWith Json.NounNaming <| selectorButton First "Noun"
-                                        , Input.optionWith Json.VerbNaming <| selectorButton Last "Verb"
-                                        ]
-                                    }
+                                , row [ spacing 30 ]
+                                    [ Input.radioRow []
+                                        { onChange = UserSelectedNamingStyle
+                                        , selected = Just model.namingStyle
+                                        , label =
+                                            Input.labelLeft [ padding 5 ] <| text "Naming style"
+                                        , options =
+                                            [ Input.optionWith Json.NounNaming <| selectorButton First "Noun"
+                                            , Input.optionWith Json.VerbNaming <| selectorButton Last "Verb"
+                                            ]
+                                        }
+                                    , Input.radioRow []
+                                        { onChange = UserSelectedDecoderStyle
+                                        , selected = Just model.decoderStyle
+                                        , label =
+                                            Input.labelLeft [ padding 5 ] <| text "Decoder style"
+                                        , options =
+                                            [ Input.optionWith Json.PlainDecoders <| selectorButton First "Plain"
+                                            , Input.optionWith Json.PipelineDecoders <| selectorButton Last "Pipeline"
+                                            ]
+                                        }
+                                    ]
                                 ]
 
                       else
@@ -323,7 +338,7 @@ update msg model =
                 ( { model | elmResult = None }, Cmd.none )
 
             else
-                case Json.convert { rootTypeName = topLevelTypeName, decoderStyle = Json.PlainDecoders, namingStyle = model.namingStyle } jsonText of
+                case Json.convert { rootTypeName = topLevelTypeName, decoderStyle = model.decoderStyle, namingStyle = model.namingStyle } jsonText of
                     Err err ->
                         ( { model | elmResult = Error err }, Cmd.none )
 
@@ -338,6 +353,13 @@ update msg model =
 
         UserResizedWindow width height ->
             ( { model | windowSize = { height = height, width = width } }, Cmd.none )
+
+        UserSelectedDecoderStyle decoderStyle ->
+            let
+                ( debounce, cmd ) =
+                    Debounce.push debounceConfig ( model.topLevelTypeName, model.jsonText ) model.debounce
+            in
+            ( { model | debounce = debounce, decoderStyle = decoderStyle }, cmd )
 
         UserSelectedNamingStyle namingStyle ->
             let

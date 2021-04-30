@@ -182,7 +182,7 @@ null
 `
 ], R.map((fileName) => Fs.readFileSync(fileName).toString(), Glob.sync("json-samples/*.json")))
 
-const paramSets = [["plain", "noun"], ["plain", "verb"]]
+const paramSets = [["plain", "noun"], ["plain", "verb"], ["pipeline", "noun"], ["pipeline", "verb"]]
 
 const compileElm = (sourceFileNames, outputName) => {
     const args = ["make", sourceFileNames, "--optimize", "--output", `generated/${outputName}.js`]
@@ -235,6 +235,7 @@ port module Test${elm.id}_${elm.decoderStyle}_${elm.namingStyle} exposing (main)
 
 import Json.Decode
 import Json.Encode
+${elm.decoderStyle == "pipeline" ? "import Json.Decode.Pipeline" : ""}
 import Platform exposing (Program)
 
 -- JSON SAMPLE:
