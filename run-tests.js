@@ -182,7 +182,7 @@ null
 `
 ], R.map((fileName) => Fs.readFileSync(fileName).toString(), Glob.sync("json-samples/*.json")))
 
-const paramSets = [["plain", "noun"], ["plain", "verb"], ["pipeline", "noun"], ["pipeline", "verb"]]
+const paramSets = R.xprod(["plain", "pipeline", "applicative"], ["noun", "verb"])
 
 const compileElm = (sourceFileNames, outputName) => {
     const args = ["make", sourceFileNames, "--optimize", "--output", `generated/${outputName}.js`]
@@ -233,9 +233,8 @@ const writeTest = (elm) => {
     const test = `
 port module Test${elm.id}_${elm.decoderStyle}_${elm.namingStyle} exposing (main)
 
-import Json.Decode
-import Json.Encode
-${elm.decoderStyle == "pipeline" ? "import Json.Decode.Pipeline" : ""}
+${elm.output.imports.join("\n")}
+
 import Platform exposing (Program)
 
 -- JSON SAMPLE:
@@ -248,13 +247,13 @@ port output${elm.id}_${elm.decoderStyle}_${elm.namingStyle} : String -> Cmd msg
 type alias Flags = String
 
 
-${elm.types.join("\n\n\n")}
+${elm.output.types.join("\n\n\n")}
 
 
-${elm.decoders.join("\n\n\n")}
+${elm.output.decoders.join("\n\n\n")}
 
 
-${elm.encoders.join("\n\n\n")}
+${elm.output.encoders.join("\n\n\n")}
 
 
 init : Flags -> ( (), Cmd msg )

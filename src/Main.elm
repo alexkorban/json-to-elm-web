@@ -24,7 +24,7 @@ port copySignal : () -> Cmd msg
 type Output
     = None
     | Error String
-    | Code ( List Json.TypeString, List Json.DecoderString, List Json.EncoderString )
+    | Code Json.Output
 
 
 type alias Model =
@@ -264,6 +264,7 @@ view model =
                                             Input.labelLeft [ padding 5 ] <| text "Decoder style"
                                         , options =
                                             [ Input.optionWith Json.PlainDecoders <| selectorButton First "Plain"
+                                            , Input.optionWith Json.ApplicativeDecoders <| selectorButton Mid "Applicative"
                                             , Input.optionWith Json.PipelineDecoders <| selectorButton Last "Pipeline"
                                             ]
                                         }
@@ -282,20 +283,22 @@ view model =
                                  , Html.Attributes.style "height" "100%"
                                  ]
                                     ++ (case model.elmResult of
-                                            Code ( typeStrs, decoderStrs, encoderStrs ) ->
+                                            Code { imports, types, decoders, encoders } ->
                                                 [ Html.Attributes.attribute "mode" "ace/mode/elm"
                                                 , Html.Attributes.attribute "text" <|
-                                                    if List.isEmpty typeStrs then
+                                                    if List.isEmpty types then
                                                         String.join "\n\n\n"
-                                                            [ String.join "\n\n\n" decoderStrs
-                                                            , String.join "\n\n\n" encoderStrs
+                                                            [ String.join "\n" imports
+                                                            , String.join "\n\n\n" decoders
+                                                            , String.join "\n\n\n" encoders
                                                             ]
 
                                                     else
                                                         String.join "\n\n\n"
-                                                            [ String.join "\n\n\n" typeStrs
-                                                            , String.join "\n\n\n" decoderStrs
-                                                            , String.join "\n\n\n" encoderStrs
+                                                            [ String.join "\n" imports
+                                                            , String.join "\n\n\n" types
+                                                            , String.join "\n\n\n" decoders
+                                                            , String.join "\n\n\n" encoders
                                                             ]
                                                 ]
 

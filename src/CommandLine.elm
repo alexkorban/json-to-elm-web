@@ -22,9 +22,7 @@ type alias OutputType =
     , namingStyle : String
     , decoderStyle : String
     , error : String
-    , types : List Json.TypeString
-    , decoders : List Json.DecoderString
-    , encoders : List Json.EncoderString
+    , output : Json.Output
     }
 
 
@@ -62,15 +60,21 @@ init _ =
 
 resultAsRecord :
     InputType
-    -> Result String ( List Json.TypeString, List Json.DecoderString, List Json.EncoderString )
+    -> Result String Json.Output
     -> OutputType
 resultAsRecord { id, json, namingStyle, decoderStyle } res =
     case res of
         Err err ->
-            { id = id, json = json, namingStyle = namingStyle, decoderStyle = decoderStyle, error = err, types = [], decoders = [], encoders = [] }
+            { id = id
+            , json = json
+            , namingStyle = namingStyle
+            , decoderStyle = decoderStyle
+            , error = err
+            , output = { imports = [], types = [], decoders = [], encoders = [] }
+            }
 
-        Ok ( types, decoders, encoders ) ->
-            { id = id, json = json, namingStyle = namingStyle, decoderStyle = decoderStyle, error = "", types = types, decoders = decoders, encoders = encoders }
+        Ok result ->
+            { id = id, json = json, namingStyle = namingStyle, decoderStyle = decoderStyle, error = "", output = result }
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -90,6 +94,9 @@ update msg model =
                     case i.decoderStyle of
                         "plain" ->
                             Json.PlainDecoders
+
+                        "applicative" ->
+                            Json.ApplicativeDecoders
 
                         _ ->
                             Json.PipelineDecoders

@@ -1,4 +1,4 @@
-module Json exposing (DecoderString, DecoderStyle(..), EncoderString, GeneratorOptions, JsonString, NamingStyle(..), TypeString, convert)
+module Json exposing (DecoderStyle(..), GeneratorOptions, JsonString, NamingStyle(..), Output, convert)
 
 import Array exposing (Array)
 import Char exposing (isDigit)
@@ -24,14 +24,6 @@ type alias JsonString =
     String
 
 
-type alias DecoderString =
-    String
-
-
-type alias EncoderString =
-    String
-
-
 type alias TypeString =
     String
 
@@ -47,13 +39,18 @@ type alias Node =
 
 
 type DecoderStyle
-    = PlainDecoders
+    = ApplicativeDecoders
     | PipelineDecoders
+    | PlainDecoders
 
 
 type NamingStyle
     = VerbNaming
     | NounNaming
+
+
+type alias Output =
+    { imports : List String, types : List String, decoders : List String, encoders : List String }
 
 
 type alias GeneratorOptions =
@@ -63,7 +60,7 @@ type alias GeneratorOptions =
 convert :
     GeneratorOptions
     -> JsonString
-    -> Result String ( List TypeString, List DecoderString, List EncoderString )
+    -> Result String Output
 convert ({ rootTypeName } as options) jsonStr =
     case parse jsonStr of
         Err err ->
@@ -80,8 +77,13 @@ convert ({ rootTypeName } as options) jsonStr =
                             rootTypeName
                         )
                     )
-                --|> Debug.log "tree"
-                |> (\t -> ( typesAndAliases t, plainDecoders options t, encoders options.namingStyle t ))
+                |> (\t ->
+                        { imports = imports options.decoderStyle
+                        , types = typesAndAliases t
+                        , decoders = decoders options t
+                        , encoders = encoders options.namingStyle t
+                        }
+                   )
                 |> Ok
 
 
@@ -151,6 +153,44 @@ annotate pathSoFar node =
 
         _ ->
             { node | path = pathSoFar }
+
+
+
+-- GENERATION OF IMPORTS --
+
+
+imports : DecoderStyle -> List String
+imports decoderStyle =
+    let
+        importStrs =
+            [ "import Json.Decode", "import Json.Encode" ]
+                ++ (case decoderStyle of
+                        ApplicativeDecoders ->
+                            [ "import Json.Decode.Extra" ]
+
+                        PipelineDecoders ->
+                            [ "import Json.Decode.Pipeline" ]
+
+                        PlainDecoders ->
+                            []
+                   )
+
+        commentStrs =
+            [ "-- Required packages:"
+            , "-- * elm/json"
+            ]
+                ++ (case decoderStyle of
+                        ApplicativeDecoders ->
+                            [ "-- * elm-community/json-extra" ]
+
+                        PipelineDecoders ->
+                            [ "-- * NoRedInk/elm-json-decode-pipeline" ]
+
+                        PlainDecoders ->
+                            []
+                   )
+    in
+    importStrs ++ [ "\n" ] ++ commentStrs
 
 
 
@@ -366,8 +406,8 @@ customType path elmTypes =
 -- GENERATION OF PLAIN DECODERS --
 
 
-plainDecoders : GeneratorOptions -> Node -> List String
-plainDecoders options node =
+decoders : GeneratorOptions -> Node -> List String
+decoders options node =
     case node.value of
         JList nodes ->
             listDecoders options node nodes
@@ -376,7 +416,7 @@ plainDecoders options node =
             objDecoders options.namingStyle options.decoderStyle node.path nodes
                 :: (nodes
                         |> List.filter producesNestedTypes
-                        |> List.map (plainDecoders options)
+                        |> List.map (decoders options)
                         |> List.concat
                    )
 
@@ -474,7 +514,7 @@ listDecoders options node childNodes =
     mainDecoder
         :: (childNodes
                 |> List.filter producesNestedTypes
-                |> List.map (plainDecoders options)
+                |> List.map (decoders options)
                 |> List.concat
            )
 
@@ -517,6 +557,12 @@ objDecoders namingStyle decoderStyle path childNodes =
                         ++ typeName
                         ++ "\n"
                         ++ pipelineObjFieldDecoders 8 namingStyle sortedChildNodes
+
+                ( _, ApplicativeDecoders ) ->
+                    "    Json.Decode.succeed "
+                        ++ typeName
+                        ++ "\n"
+                        ++ applicativeObjFieldDecoders 8 namingStyle sortedChildNodes
            )
 
 
@@ -636,6 +682,26 @@ pipelineObjFieldDecoders indent namingStyle nodes =
                     ++ (Cons.head <| Cons.reverse node.path)
                     ++ "\" "
                     ++ (paren <| decoderName namingStyle node)
+            )
+        |> String.join "\n"
+
+
+
+-- GENERATION OF APPLICATIVE DECODERS
+
+
+applicativeObjFieldDecoders : Int -> NamingStyle -> List Node -> String
+applicativeObjFieldDecoders indent namingStyle nodes =
+    nodes
+        |> List.map
+            (\node ->
+                String.repeat indent " "
+                    ++ "|> Json.Decode.Extra.andMap ("
+                    ++ "Json.Decode.field \""
+                    ++ (Cons.head <| Cons.reverse node.path)
+                    ++ "\" "
+                    ++ (withApplyArrow <| decoderName namingStyle node)
+                    ++ ")"
             )
         |> String.join "\n"
 
