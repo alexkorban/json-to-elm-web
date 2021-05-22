@@ -5,18 +5,18 @@ import Char exposing (isDigit)
 import Cons exposing (Cons)
 import Dict exposing (Dict)
 import Json.Decode as Decode exposing (Decoder)
-import List.Extra
+import List.Extra exposing (unique)
 import Set exposing (Set)
 import String.Extra
 
 
 type JsonValue
-    = JString String
-    | JFloat Float
-    | JInt Int
-    | JBool Bool
-    | JList (List Node)
-    | JObj (List Node)
+    = JString
+    | JFloat
+    | JInt
+    | JBool
+    | JList (List JsonValue)
+    | JObj (List ( String, JsonValue ))
     | JNull
 
 
@@ -24,18 +24,8 @@ type alias JsonString =
     String
 
 
-type alias TypeString =
-    String
-
-
 type alias Path =
     Cons String
-
-
-type alias Node =
-    { value : JsonValue
-    , path : Path
-    }
 
 
 type DecoderStyle
@@ -57,102 +47,78 @@ type alias GeneratorOptions =
     { rootTypeName : String, decoderStyle : DecoderStyle, namingStyle : NamingStyle }
 
 
-convert :
-    GeneratorOptions
-    -> JsonString
-    -> Result String Output
-convert ({ rootTypeName } as options) jsonStr =
-    case parse jsonStr of
+asStr : JsonValue -> String
+asStr value =
+    case value of
+        JBool ->
+            "Bool"
+
+        JInt ->
+            "Int"
+
+        JFloat ->
+            "Float"
+
+        JString ->
+            "String"
+
+        JNull ->
+            "()"
+
+        JList items ->
+            "List [" ++ (String.join ", " <| List.map asStr items) ++ "]"
+
+        JObj items ->
+            "{" ++ (String.join ", " <| List.map (\( label, item ) -> label ++ ": " ++ asStr item) items) ++ "}"
+
+
+convert : GeneratorOptions -> JsonString -> Result String Output
+convert options jsonStr =
+    case Decode.decodeString jsonDecoder jsonStr of
         Err err ->
             Err <| Decode.errorToString err
 
         Ok tree ->
-            tree
-                |> annotate
-                    (Cons.singleton
-                        (if String.isEmpty rootTypeName then
-                            "Root"
+            let
+                rootTypeName =
+                    if String.isEmpty options.rootTypeName then
+                        "Root"
 
-                         else
-                            rootTypeName
-                        )
-                    )
-                |> (\t ->
-                        { imports = imports options.decoderStyle
-                        , types = typesAndAliases t
-                        , decoders = decoders options t
-                        , encoders = encoders options.namingStyle t
-                        }
-                   )
-                |> Ok
+                    else
+                        options.rootTypeName
+
+                rootPath =
+                    Cons.singleton rootTypeName
+            in
+            Ok
+                { imports = imports options.decoderStyle
+                , types = typesAndAliases rootPath tree
+                , decoders = decoders options rootPath tree
+                , encoders = encoders options.namingStyle rootPath tree
+                }
 
 
-jsonDecoder : Decoder Node
+jsonDecoder : Decoder JsonValue
 jsonDecoder =
-    let
-        makeNode v =
-            -- unfortunately have to create a fake path value as there's no way to combine
-            -- recursive JsonValue with two node types (without a path and with a path)
-            { value = v, path = Cons.singleton "" }
-
-        withAttrNames keyValuePairs =
-            keyValuePairs
-                |> List.map (\( attrName, node ) -> { node | path = Cons.singleton attrName })
-    in
     Decode.oneOf
-        [ Decode.map (makeNode << JString) Decode.string
-        , Decode.map (makeNode << JInt) Decode.int
-        , Decode.map (makeNode << JFloat) Decode.float
-        , Decode.map (makeNode << JBool) Decode.bool
-        , Decode.map (makeNode << JList) <| Decode.list <| Decode.lazy (\_ -> jsonDecoder)
-        , Decode.map (makeNode << JObj << withAttrNames) <| Decode.keyValuePairs <| Decode.lazy (\_ -> jsonDecoder)
-        , Decode.null (makeNode JNull)
+        [ Decode.map (\_ -> JString) Decode.string
+        , Decode.map (\_ -> JInt) Decode.int
+        , Decode.map (\_ -> JFloat) Decode.float
+        , Decode.map (\_ -> JBool) Decode.bool
+        , Decode.map JList <| Decode.list <| Decode.lazy (\_ -> jsonDecoder)
+        , Decode.map (JObj << List.sortBy Tuple.first) <| Decode.keyValuePairs <| Decode.lazy (\_ -> jsonDecoder)
+        , Decode.null JNull
         ]
 
 
-parse : String -> Result Decode.Error Node
-parse json =
-    Decode.decodeString jsonDecoder json
+indexNouns : Array String
+indexNouns =
+    Array.fromList [ "Object", "Member", "Entity", "Thing", "Instance", "Constituent", "Specimen", "Gadget", "Widget", "Gizmo", "Part", "Chunk", "Piece", "Thingy", "Thingamajig", "Whatsit", "Doodad" ]
 
 
-annotate : Path -> Node -> Node
-annotate pathSoFar node =
-    let
-        indexNoun =
-            Array.fromList [ "Object", "Item", "Entity", "Thing", "Instance", "Constituent", "Specimen", "Gadget", "Widget", "Gizmo", "Part", "Chunk", "Piece", "Thingy", "Thingamajig", "Whatsit", "Doodad" ]
-
-        strFromIndex index =
-            Maybe.withDefault ("Alias" ++ String.fromInt index) <| Array.get index indexNoun
-
-        annotateList index listNode =
-            annotate (Cons.appendList pathSoFar [ strFromIndex index ]) listNode
-
-        annotateObj objNode =
-            annotate
-                (Cons.appendList pathSoFar <|
-                    if String.isEmpty <| Cons.head objNode.path then
-                        []
-
-                    else
-                        [ Cons.head objNode.path ]
-                )
-                objNode
-    in
-    case node.value of
-        JList children ->
-            { node
-                | path = pathSoFar
-                , value = JList <| List.indexedMap annotateList children
-            }
-
-        JObj children ->
-            { node
-                | path = pathSoFar
-                , value = JObj <| List.map annotateObj children
-            }
-
-        _ ->
-            { node | path = pathSoFar }
+strFromIndex : Int -> String
+strFromIndex index =
+    Maybe.withDefault ("Alias" ++ String.fromInt index) <| Array.get index indexNouns
 
 
 
@@ -197,165 +163,159 @@ imports decoderStyle =
 -- GENERATION OF TYPES AND TYPE ALIASES --
 
 
-typesAndAliases : Node -> List String
-typesAndAliases node =
-    case node.value of
+typesAndAliases : Path -> JsonValue -> List String
+typesAndAliases path node =
+    case node of
         JList nodes ->
-            listTypesAndAliases node.path nodes
+            listTypesAndAliases path nodes
 
-        JObj nodes ->
-            objTypeAlias node.path nodes
-                :: (nodes
-                        |> List.filter producesNestedTypes
-                        |> List.map typesAndAliases
-                        |> List.concat
-                   )
+        JObj nodeTuples ->
+            objTypeAliases path nodeTuples
 
         _ ->
             []
 
 
-listTypesAndAliases : Path -> List Node -> List String
-listTypesAndAliases path childNodes =
+{-| A value is non-trivial if it requires type or alias definitions (and corresponding decoders & encoders)
+-}
+isNonTrivial node =
     let
-        elmTypes =
-            List.map elmType childNodes
-                |> Set.fromList
+        areHeterogeneous nodes =
+            (List.length <| List.Extra.uniqueBy asStr nodes) > 1
     in
-    if Set.size elmTypes > 1 then
-        -- heterogeneous array
-        customType path (Set.toList elmTypes)
-            :: (childNodes
-                    |> List.filter producesNestedTypes
-                    |> List.map typesAndAliases
+    case node of
+        JList nodes ->
+            List.any isNonTrivial nodes || areHeterogeneous nodes
+
+        JObj _ ->
+            True
+
+        _ ->
+            False
+
+
+listTypesAndAliases : Path -> List JsonValue -> List String
+listTypesAndAliases path nodes =
+    let
+        uniqueItems =
+            List.Extra.uniqueBy asStr nodes
+                |> List.sortBy decoderSortOrder
+
+        isHeterogeneous =
+            List.length uniqueItems > 1
+    in
+    if isHeterogeneous then
+        customType path uniqueItems
+            :: (uniqueItems
+                    |> List.indexedMap
+                        (\i node ->
+                            if isNonTrivial node then
+                                typesAndAliases (Cons.appendList path [ strFromIndex i ]) node
+
+                            else
+                                []
+                        )
                     |> List.concat
                )
 
     else
-        case List.head childNodes of
+        case List.head uniqueItems of
             Nothing ->
                 []
 
             Just childNode ->
-                typesAndAliases childNode
+                typesAndAliases (Cons.appendList path [ strFromIndex 0 ]) childNode
 
 
 typeAliasName : Path -> String
 typeAliasName path =
     String.Extra.classify <|
         if Cons.length path > 1 then
-            String.join " " <| Tuple.second <| Cons.uncons path
+            String.join " " <| Cons.toList path
 
         else
             Cons.head path
 
 
-elmType : Node -> String
-elmType { path, value } =
+elmType : Path -> JsonValue -> String
+elmType path value =
     case value of
-        JBool _ ->
+        JBool ->
             "Bool"
 
-        JFloat _ ->
+        JFloat ->
             "Float"
 
-        JInt _ ->
+        JInt ->
             "Int"
 
-        JString _ ->
+        JString ->
             "String"
 
         JObj _ ->
             typeAliasName path
 
-        JList children ->
-            "List " ++ (paren <| listTypeName path children)
+        JList nodes ->
+            let
+                uniqueItems =
+                    List.Extra.uniqueBy asStr nodes
+            in
+            "List " ++ (paren <| listItemTypeName path uniqueItems)
 
         JNull ->
             "()"
 
 
-objTypeAlias : Path -> List Node -> String
-objTypeAlias path nodes =
-    nodes
-        |> List.map
-            (\node ->
-                (adorn <| Cons.head <| Cons.reverse node.path) ++ " : " ++ elmType node
-            )
-        |> List.sort
-        |> String.join "\n    , "
-        |> (\fieldStr ->
-                ("type alias " ++ typeAliasName path ++ " =\n")
-                    ++ "    "
-                    ++ (if String.isEmpty fieldStr then
-                            "{}"
+objTypeAliases : Path -> List ( String, JsonValue ) -> List String
+objTypeAliases path nodeTuples =
+    let
+        fieldStr =
+            nodeTuples
+                |> List.map
+                    (\node ->
+                        (adorn <| Tuple.first node)
+                            ++ " : "
+                            ++ elmType (Cons.appendList path [ Tuple.first node ]) (Tuple.second node)
+                    )
+                |> List.sort
+                |> String.join "\n    , "
 
-                        else
-                            "{ " ++ fieldStr ++ "\n    }"
-                       )
+        mainAlias =
+            ("type alias " ++ typeAliasName path ++ " =\n")
+                ++ "    "
+                ++ (if String.isEmpty fieldStr then
+                        "{}"
+
+                    else
+                        "{ " ++ fieldStr ++ "\n    }"
+                   )
+    in
+    mainAlias
+        :: (nodeTuples
+                |> List.filter (Tuple.second >> isNonTrivial)
+                |> List.map (\( label, n ) -> typesAndAliases (Cons.appendList path [ label ]) n)
+                |> List.concat
            )
 
 
-isObj : JsonValue -> Bool
-isObj val =
-    case val of
-        JObj _ ->
-            True
-
-        _ ->
-            False
-
-
-isList : JsonValue -> Bool
-isList val =
-    case val of
-        JList _ ->
-            True
-
-        _ ->
-            False
-
-
-isHeterogeneous : List Node -> Bool
-isHeterogeneous nodes =
+{-| This function expects a list of _unique items_ in a list (rather than all of them)
+-}
+listItemTypeName : Path -> List JsonValue -> String
+listItemTypeName path uniqueItems =
     let
-        elmTypes =
-            List.map elmType nodes
-                |> Set.fromList
+        isHeterogeneous =
+            List.length uniqueItems > 1
     in
-    Set.size elmTypes > 1
+    if isHeterogeneous then
+        typeAliasName path
 
+    else
+        case List.head uniqueItems of
+            Nothing ->
+                "()"
 
-producesNestedTypes : Node -> Bool
-producesNestedTypes { value } =
-    case value of
-        JObj _ ->
-            True
-
-        JList childNodes ->
-            List.any (\item -> isObj item.value || isList item.value) childNodes
-                || isHeterogeneous childNodes
-
-        _ ->
-            False
-
-
-listTypeName : Path -> List Node -> String
-listTypeName path nodes =
-    let
-        elmTypes =
-            List.map elmType nodes
-                |> Set.fromList
-    in
-    case Set.size elmTypes of
-        0 ->
-            "()"
-
-        1 ->
-            Maybe.withDefault "ERROR" <| List.head <| Set.toList elmTypes
-
-        _ ->
-            typeAliasName path
+            Just node ->
+                elmType (Cons.appendList path [ strFromIndex 0 ]) node
 
 
 paren : String -> String
@@ -376,8 +336,23 @@ withApplyArrow s =
         s
 
 
-customType : Path -> List String -> String
-customType path elmTypes =
+{-| An empty list has to be tried last so that other list decoders have a chance
+to succeed before it
+-}
+decoderSortOrder : JsonValue -> Int
+decoderSortOrder node =
+    case node of
+        JList [] ->
+            1
+
+        _ ->
+            0
+
+
+{-| This function expects a list of unique types
+-}
+customType : Path -> List JsonValue -> String
+customType path nodes =
     let
         name =
             typeAliasName path
@@ -385,19 +360,14 @@ customType path elmTypes =
     "type "
         ++ name
         ++ "\n    = "
-        ++ (elmTypes
-                |> (\lst ->
-                        -- the List () type has to be pushed to the end to match the decoder
-                        -- where it *has to be* at the end to allow other list decoders to be
-                        -- tried first
-                        case List.Extra.elemIndex "List ()" lst of
-                            Nothing ->
-                                lst
-
-                            Just i ->
-                                List.append (List.Extra.removeAt i lst) [ "List ()" ]
-                   )
-                |> List.indexedMap (\i t -> name ++ String.fromInt i ++ " " ++ paren t)
+        ++ (nodes
+                |> List.indexedMap
+                    (\i node ->
+                        name
+                            ++ String.fromInt i
+                            ++ " "
+                            ++ (paren <| elmType (Cons.appendList path [ strFromIndex i ]) node)
+                    )
                 |> String.join "\n    | "
            )
 
@@ -406,196 +376,200 @@ customType path elmTypes =
 -- GENERATION OF PLAIN DECODERS --
 
 
-decoders : GeneratorOptions -> Node -> List String
-decoders options node =
-    case node.value of
+decoders : GeneratorOptions -> Path -> JsonValue -> List String
+decoders options path node =
+    case node of
         JList nodes ->
-            listDecoders options node nodes
+            listDecoders options path node nodes
 
-        JObj nodes ->
-            objDecoders options.namingStyle options.decoderStyle node.path nodes
-                :: (nodes
-                        |> List.filter producesNestedTypes
-                        |> List.map (decoders options)
-                        |> List.concat
-                   )
+        JObj nodeTuples ->
+            objDecoders options path nodeTuples
 
         _ ->
             let
                 funcName =
-                    decoderFuncName options.namingStyle <| typeAliasName node.path
+                    decoderFuncName options.namingStyle <| typeAliasName path
             in
-            [ (funcName ++ " : Json.Decode.Decoder " ++ elmType node ++ "\n")
+            [ (funcName ++ " : Json.Decode.Decoder " ++ elmType path node ++ "\n")
                 ++ (funcName ++ " = \n")
                 ++ "    "
-                ++ decoderName options.namingStyle node
+                ++ decoderName options.namingStyle path node
             ]
 
 
-listDecoders : GeneratorOptions -> Node -> List Node -> List String
-listDecoders options node childNodes =
+listDecoders : GeneratorOptions -> Path -> JsonValue -> List JsonValue -> List String
+listDecoders options path node nodes =
     let
-        names =
-            Set.fromList <| List.map (decoderName options.namingStyle) childNodes
+        uniqueItems =
+            List.Extra.uniqueBy asStr nodes
+                |> List.sortBy decoderSortOrder
+
+        isHeterogeneous =
+            List.length uniqueItems > 1
 
         typeName =
-            typeAliasName node.path
-
-        firstIs s tuple =
-            Tuple.first tuple == s
+            typeAliasName path
 
         funcName =
             decoderFuncName options.namingStyle typeName
 
-        memberFuncName =
-            decoderFuncName options.namingStyle (typeName ++ "Member")
+        itemDecoder =
+            if isHeterogeneous then
+                "Json.Decode.list " ++ decoderFuncName options.namingStyle (typeName ++ "Item")
+
+            else
+                case List.head uniqueItems of
+                    Nothing ->
+                        "Json.Decode.list <| Json.Decode.succeed ()"
+
+                    Just childNode ->
+                        decoderName options.namingStyle (Cons.appendList path [ strFromIndex 0 ]) childNode
+
+        itemFuncName =
+            decoderFuncName options.namingStyle (typeName ++ "Item")
 
         listDecoder =
-            (funcName ++ " : Json.Decode.Decoder " ++ (paren <| elmType node) ++ "\n")
+            (funcName ++ " : Json.Decode.Decoder " ++ (paren <| elmType path node) ++ "\n")
                 ++ (funcName ++ " = \n")
-                ++ (String.repeat 4 " " ++ "Json.Decode.list " ++ memberFuncName)
+                ++ (String.repeat 4 " " ++ listDecoderName options.namingStyle path uniqueItems)
 
-        mainDecoder =
-            listDecoder
-                ++ "\n\n\n"
-                ++ (memberFuncName ++ " : Json.Decode.Decoder " ++ (paren <| listTypeName node.path childNodes) ++ "\n")
-                ++ (memberFuncName ++ " = \n")
-                ++ "    "
-                ++ (case Set.size names of
-                        0 ->
-                            "Json.Decode.succeed ()"
+        mainDecoders =
+            (if Cons.length path == 1 then
+                -- Usually we don't need to generate a separate decoder for the list itself,
+                -- instead expressing things in terms of the item decoder. However,
+                -- if the top level value is an array, we do need to generate a decoder for it,
+                -- so we add it here
+                [ listDecoder ]
 
-                        1 ->
-                            case List.head childNodes of
-                                -- cannot happen when set size is 1
-                                Nothing ->
-                                    "ERROR"
+             else
+                []
+            )
+                ++ (if isHeterogeneous then
+                        [ (itemFuncName ++ " : Json.Decode.Decoder " ++ (paren <| listItemTypeName path uniqueItems) ++ "\n")
+                            ++ (itemFuncName ++ " = \n")
+                            ++ "    "
+                            ++ "Json.Decode.oneOf\n"
+                            ++ String.repeat 8 " "
+                            ++ "[ "
+                            ++ (uniqueItems
+                                    |> List.indexedMap
+                                        (\i n ->
+                                            "Json.Decode.map "
+                                                ++ typeName
+                                                ++ String.fromInt i
+                                                ++ " <| "
+                                                ++ decoderName options.namingStyle (Cons.appendList path [ strFromIndex i ]) n
+                                        )
+                                    |> String.join ("\n" ++ String.repeat 8 " " ++ ", ")
+                               )
+                            ++ "\n"
+                            ++ String.repeat 8 " "
+                            ++ "]"
+                        ]
 
-                                Just childNode ->
-                                    decoderName options.namingStyle childNode
-
-                        _ ->
-                            -- heterogeneous array
-                            "Json.Decode.oneOf\n"
-                                ++ String.repeat 8 " "
-                                ++ "[ "
-                                ++ (childNodes
-                                        |> List.map (\n -> ( elmType n, n ))
-                                        |> List.Extra.uniqueBy Tuple.first
-                                        |> List.sortBy Tuple.first
-                                        |> (\lst ->
-                                                -- the decoder for an empty array has to be pushed to the end
-                                                -- to allow other list decoders to be tried first
-                                                case List.Extra.findIndex (firstIs "List ()") lst of
-                                                    Nothing ->
-                                                        lst
-
-                                                    Just i ->
-                                                        case List.Extra.getAt i lst of
-                                                            Just tuple ->
-                                                                List.append (List.Extra.removeAt i lst) [ tuple ]
-
-                                                            Nothing ->
-                                                                -- cannot happen but we cannot tell the type system that
-                                                                lst
-                                           )
-                                        |> List.map (Tuple.second >> decoderName options.namingStyle)
-                                        |> List.indexedMap
-                                            (\i name ->
-                                                "Json.Decode.map " ++ typeName ++ String.fromInt i ++ " <| " ++ name
-                                            )
-                                        |> String.join ("\n" ++ String.repeat 8 " " ++ ", ")
-                                   )
-                                ++ "\n"
-                                ++ String.repeat 8 " "
-                                ++ "]"
+                    else
+                        []
                    )
     in
-    mainDecoder
-        :: (childNodes
-                |> List.filter producesNestedTypes
-                |> List.map (decoders options)
+    mainDecoders
+        ++ (uniqueItems
+                |> List.indexedMap
+                    (\i n ->
+                        if isNonTrivial n then
+                            decoders options (Cons.appendList path [ strFromIndex i ]) n
+
+                        else
+                            []
+                    )
                 |> List.concat
            )
 
 
-objDecoders : NamingStyle -> DecoderStyle -> Path -> List Node -> String
-objDecoders namingStyle decoderStyle path childNodes =
+objDecoders : GeneratorOptions -> Path -> List ( String, JsonValue ) -> List String
+objDecoders options path nodeTuples =
     let
         typeName =
             typeAliasName path
 
         sortedChildNodes =
-            List.sortBy (adorn << Cons.head << Cons.reverse << .path) childNodes
+            List.sortBy (Tuple.first >> adorn) nodeTuples
 
         funcName =
-            decoderFuncName namingStyle typeName
+            decoderFuncName options.namingStyle typeName
+
+        mainDecoder =
+            (funcName ++ " : Json.Decode.Decoder " ++ typeName ++ "\n")
+                ++ (funcName ++ " = \n")
+                ++ (case ( List.length sortedChildNodes, options.decoderStyle ) of
+                        ( 0, _ ) ->
+                            "    Json.Decode.succeed " ++ typeName
+
+                        ( 1, PlainDecoders ) ->
+                            "    Json.Decode.map " ++ typeName ++ "\n" ++ objFieldDecoders 8 options.namingStyle path sortedChildNodes
+
+                        ( fieldCount, PlainDecoders ) ->
+                            if fieldCount > 8 then
+                                stagedObjDecoders options.namingStyle typeName path sortedChildNodes
+
+                            else
+                                "    Json.Decode.map"
+                                    ++ (String.fromInt <| List.length sortedChildNodes)
+                                    ++ " "
+                                    ++ typeName
+                                    ++ "\n"
+                                    ++ objFieldDecoders 8 options.namingStyle path sortedChildNodes
+
+                        ( _, PipelineDecoders ) ->
+                            "    Json.Decode.succeed "
+                                ++ typeName
+                                ++ "\n"
+                                ++ pipelineObjFieldDecoders 8 options.namingStyle path sortedChildNodes
+
+                        ( _, ApplicativeDecoders ) ->
+                            "    Json.Decode.succeed "
+                                ++ typeName
+                                ++ "\n"
+                                ++ applicativeObjFieldDecoders 8 options.namingStyle path sortedChildNodes
+                   )
     in
-    (funcName ++ " : Json.Decode.Decoder " ++ typeName ++ "\n")
-        ++ (funcName ++ " = \n")
-        ++ (case ( List.length sortedChildNodes, decoderStyle ) of
-                ( 0, _ ) ->
-                    "    Json.Decode.succeed " ++ typeName
-
-                ( 1, PlainDecoders ) ->
-                    "    Json.Decode.map " ++ typeName ++ "\n" ++ objFieldDecoders 8 namingStyle sortedChildNodes
-
-                ( fieldCount, PlainDecoders ) ->
-                    if fieldCount > 8 then
-                        stagedObjDecoders namingStyle typeName sortedChildNodes
-
-                    else
-                        "    Json.Decode.map"
-                            ++ (String.fromInt <| List.length sortedChildNodes)
-                            ++ " "
-                            ++ typeName
-                            ++ "\n"
-                            ++ objFieldDecoders 8 namingStyle sortedChildNodes
-
-                ( _, PipelineDecoders ) ->
-                    "    Json.Decode.succeed "
-                        ++ typeName
-                        ++ "\n"
-                        ++ pipelineObjFieldDecoders 8 namingStyle sortedChildNodes
-
-                ( _, ApplicativeDecoders ) ->
-                    "    Json.Decode.succeed "
-                        ++ typeName
-                        ++ "\n"
-                        ++ applicativeObjFieldDecoders 8 namingStyle sortedChildNodes
+    mainDecoder
+        :: (nodeTuples
+                |> List.filter (Tuple.second >> isNonTrivial)
+                |> List.map (\( label, n ) -> decoders options (Cons.appendList path [ label ]) n)
+                |> List.concat
            )
 
 
-objFieldDecoders : Int -> NamingStyle -> List Node -> String
-objFieldDecoders indent namingStyle nodes =
-    nodes
+objFieldDecoders : Int -> NamingStyle -> Path -> List ( String, JsonValue ) -> String
+objFieldDecoders indent namingStyle path nodeTuples =
+    nodeTuples
         |> List.map
-            (\node ->
+            (\( label, value ) ->
                 String.repeat indent " "
                     ++ "(Json.Decode.field \""
-                    ++ (Cons.head <| Cons.reverse node.path)
+                    ++ label
                     ++ "\" "
-                    ++ (withApplyArrow <| decoderName namingStyle node)
+                    ++ (withApplyArrow <| decoderName namingStyle (Cons.appendList path [ label ]) value)
                     ++ ")"
             )
         |> String.join "\n"
 
 
-stagedObjDecoders : NamingStyle -> String -> List Node -> String
-stagedObjDecoders namingStyle typeName nodes =
+stagedObjDecoders : NamingStyle -> String -> Path -> List ( String, JsonValue ) -> String
+stagedObjDecoders namingStyle typeName path nodeTuples =
     let
         initFieldSet =
-            List.take 8 nodes
+            List.take 8 nodeTuples
 
         fieldSets =
-            nodes
+            nodeTuples
                 |> List.drop 8
                 |> List.Extra.greedyGroupsOf 7
     in
     "    let\n"
         ++ (String.repeat 8 " " ++ "fieldSet0 = \n")
         ++ (String.repeat 12 " " ++ "Json.Decode.map8 " ++ typeName ++ "\n")
-        ++ objFieldDecoders 16 namingStyle initFieldSet
+        ++ objFieldDecoders 16 namingStyle path initFieldSet
         ++ "\n"
         ++ (fieldSets
                 |> List.indexedMap
@@ -604,30 +578,46 @@ stagedObjDecoders namingStyle typeName nodes =
                             ("\n" ++ String.repeat 8 " " ++ "fieldSet" ++ String.fromInt (index + 1) ++ " =\n")
                                 ++ (String.repeat 12 " " ++ "Json.Decode.map8 (<|)\n")
                                 ++ (String.repeat 16 " " ++ "fieldSet" ++ String.fromInt index ++ "\n")
-                                ++ objFieldDecoders 16 namingStyle fieldSet
+                                ++ objFieldDecoders 16 namingStyle path fieldSet
 
                         else
                             "    in\n"
                                 ++ (String.repeat 4 " " ++ "Json.Decode.map" ++ String.fromInt (1 + List.length fieldSet) ++ " (<|)\n")
                                 ++ (String.repeat 8 " " ++ "fieldSet" ++ String.fromInt (List.length fieldSets - 1) ++ "\n")
-                                ++ objFieldDecoders 8 namingStyle fieldSet
+                                ++ objFieldDecoders 8 namingStyle path fieldSet
                     )
                 |> String.join "\n"
            )
 
 
-listDecoderName : NamingStyle -> Path -> List Node -> String
+listDecoderName : NamingStyle -> Path -> List JsonValue -> String
 listDecoderName namingStyle path nodes =
     let
-        decoderNames =
-            List.map (decoderName namingStyle) nodes
-                |> Set.fromList
-    in
-    if Set.size decoderNames == 1 then
-        "Json.Decode.list " ++ (paren <| Maybe.withDefault "ERROR" <| List.head <| Set.toList decoderNames)
+        uniqueItems =
+            List.Extra.uniqueBy asStr nodes
 
-    else
-        decoderFuncName namingStyle <| typeAliasName path
+        isHeterogeneous =
+            List.length uniqueItems > 1
+
+        itemDecoderFuncName =
+            if namingStyle == NounNaming then
+                String.Extra.decapitalize <| typeAliasName path ++ "ItemDecoder"
+
+            else
+                "decode" ++ typeAliasName path ++ "Item"
+    in
+    "Json.Decode.list "
+        ++ (if isHeterogeneous then
+                itemDecoderFuncName
+
+            else
+                case List.head uniqueItems of
+                    Nothing ->
+                        withApplyArrow "Json.Decode.succeed ()"
+
+                    Just node ->
+                        paren <| decoderName namingStyle (Cons.appendList path [ strFromIndex 0 ]) node
+           )
 
 
 decoderFuncName : NamingStyle -> String -> String
@@ -639,29 +629,25 @@ decoderFuncName namingStyle typeName =
         "decode" ++ typeName
 
 
-decoderName : NamingStyle -> Node -> String
-decoderName namingStyle { path, value } =
+decoderName : NamingStyle -> Path -> JsonValue -> String
+decoderName namingStyle path value =
     case value of
-        JInt _ ->
+        JInt ->
             "Json.Decode.int"
 
-        JFloat _ ->
+        JFloat ->
             "Json.Decode.float"
 
-        JString _ ->
+        JString ->
             "Json.Decode.string"
 
-        JBool _ ->
+        JBool ->
             "Json.Decode.bool"
-
-        JList [] ->
-            -- an empty list cannot be decoded as a list because the type of values is unknown
-            "Json.Decode.list <| Json.Decode.succeed ()"
 
         JList nodes ->
             listDecoderName namingStyle path nodes
 
-        JObj _ ->
+        JObj nodeTuples ->
             decoderFuncName namingStyle <| typeAliasName path
 
         JNull ->
@@ -672,16 +658,16 @@ decoderName namingStyle { path, value } =
 -- GENERATION OF PIPELINE DECODERS
 
 
-pipelineObjFieldDecoders : Int -> NamingStyle -> List Node -> String
-pipelineObjFieldDecoders indent namingStyle nodes =
-    nodes
+pipelineObjFieldDecoders : Int -> NamingStyle -> Path -> List ( String, JsonValue ) -> String
+pipelineObjFieldDecoders indent namingStyle path nodeTuples =
+    nodeTuples
         |> List.map
-            (\node ->
+            (\( label, node ) ->
                 String.repeat indent " "
                     ++ "|> Json.Decode.Pipeline.required \""
-                    ++ (Cons.head <| Cons.reverse node.path)
+                    ++ label
                     ++ "\" "
-                    ++ (paren <| decoderName namingStyle node)
+                    ++ (paren <| decoderName namingStyle (Cons.appendList path [ label ]) node)
             )
         |> String.join "\n"
 
@@ -690,17 +676,17 @@ pipelineObjFieldDecoders indent namingStyle nodes =
 -- GENERATION OF APPLICATIVE DECODERS
 
 
-applicativeObjFieldDecoders : Int -> NamingStyle -> List Node -> String
-applicativeObjFieldDecoders indent namingStyle nodes =
-    nodes
+applicativeObjFieldDecoders : Int -> NamingStyle -> Path -> List ( String, JsonValue ) -> String
+applicativeObjFieldDecoders indent namingStyle path nodeTuples =
+    nodeTuples
         |> List.map
-            (\node ->
+            (\( label, node ) ->
                 String.repeat indent " "
                     ++ "|> Json.Decode.Extra.andMap ("
                     ++ "Json.Decode.field \""
-                    ++ (Cons.head <| Cons.reverse node.path)
+                    ++ label
                     ++ "\" "
-                    ++ (withApplyArrow <| decoderName namingStyle node)
+                    ++ (withApplyArrow <| decoderName namingStyle (Cons.appendList path [ label ]) node)
                     ++ ")"
             )
         |> String.join "\n"
@@ -710,8 +696,8 @@ applicativeObjFieldDecoders indent namingStyle nodes =
 -- GENERATION OF ENCODERS --
 
 
-encoders : NamingStyle -> Node -> List String
-encoders namingStyle node =
+encoders : NamingStyle -> Path -> JsonValue -> List String
+encoders namingStyle path node =
     let
         namePrefix =
             if namingStyle == NounNaming then
@@ -721,181 +707,174 @@ encoders namingStyle node =
                 "encode"
 
         typeName =
-            typeAliasName node.path
+            typeAliasName path
     in
-    case node.value of
+    case node of
         JList nodes ->
-            listEncoders namingStyle node nodes
+            listEncoders namingStyle path node nodes
 
         JObj nodes ->
-            objEncoders namingStyle node.path nodes
-                :: (nodes
-                        |> List.filter producesNestedTypes
-                        |> List.map (encoders namingStyle)
-                        |> List.concat
-                   )
+            objEncoders namingStyle path nodes
 
         _ ->
-            [ (namePrefix ++ typeName ++ " : " ++ elmType node ++ " -> Json.Encode.Value\n")
+            [ (namePrefix ++ typeName ++ " : " ++ elmType path node ++ " -> Json.Encode.Value\n")
                 ++ (namePrefix ++ typeName ++ " " ++ String.Extra.decapitalize typeName ++ " =\n")
                 ++ "    "
-                ++ encoderName namingStyle (String.Extra.decapitalize typeName) node
+                ++ encoderName namingStyle (String.Extra.decapitalize typeName) path node
             ]
 
 
-objEncoders : NamingStyle -> Path -> List Node -> String
-objEncoders namingStyle path childNodes =
+objEncoders : NamingStyle -> Path -> List ( String, JsonValue ) -> List String
+objEncoders namingStyle path nodeTuples =
     let
         typeName =
             typeAliasName path
 
         fieldEncoders =
-            childNodes
+            nodeTuples
                 |> List.map
-                    (\node ->
+                    (\( label, node ) ->
                         "( \""
-                            ++ (Cons.head <| Cons.reverse node.path)
+                            ++ label
                             ++ "\", "
-                            ++ encoderName namingStyle (String.Extra.decapitalize typeName ++ "." ++ (adorn <| Cons.head <| Cons.reverse node.path)) node
+                            ++ encoderName namingStyle (String.Extra.decapitalize typeName ++ "." ++ adorn label) (Cons.appendList path [ label ]) node
                             ++ " )"
                     )
                 |> List.sort
                 |> String.join ("\n" ++ String.repeat 8 " " ++ ", ")
-    in
-    (encoderNamePrefix namingStyle ++ typeName ++ " : " ++ typeName ++ " -> Json.Encode.Value\n")
-        ++ (encoderNamePrefix namingStyle ++ typeName ++ " " ++ String.Extra.decapitalize typeName ++ " = \n")
-        ++ "    Json.Encode.object\n"
-        ++ String.repeat 8 " "
-        ++ (if String.isEmpty fieldEncoders then
-                "[]"
-
-            else
-                "[ " ++ fieldEncoders ++ ("\n" ++ String.repeat 8 " " ++ "]")
-           )
-
-
-listEncoders : NamingStyle -> Node -> List Node -> List String
-listEncoders namingStyle node childNodes =
-    let
-        names =
-            Set.fromList <| List.map (encoderName namingStyle "") childNodes
-
-        typeName =
-            typeAliasName node.path
-
-        firstIs s tuple =
-            Tuple.first tuple == s
-
-        listEncoder =
-            (encoderNamePrefix namingStyle ++ typeName ++ " : ")
-                ++ ("List " ++ (paren <| listTypeName node.path childNodes) ++ " -> Json.Encode.Value\n")
-                ++ (encoderNamePrefix namingStyle ++ typeName ++ " =\n")
-                ++ (String.repeat 4 " " ++ "Json.Encode.list " ++ encoderNamePrefix namingStyle ++ typeName ++ "Member")
 
         mainEncoder =
-            listEncoder
-                ++ "\n\n\n"
-                ++ (encoderNamePrefix namingStyle ++ typeName ++ "Member : ")
-                ++ (listTypeName node.path childNodes ++ " -> Json.Encode.Value\n")
-                ++ (encoderNamePrefix namingStyle ++ typeName ++ "Member " ++ String.Extra.decapitalize typeName ++ " =\n")
-                ++ String.repeat 4 " "
-                ++ (case Set.size names of
-                        0 ->
-                            "Json.Encode.null"
+            (encoderNamePrefix namingStyle ++ typeName ++ " : " ++ typeName ++ " -> Json.Encode.Value\n")
+                ++ (encoderNamePrefix namingStyle ++ typeName ++ " " ++ String.Extra.decapitalize typeName ++ " = \n")
+                ++ "    Json.Encode.object\n"
+                ++ String.repeat 8 " "
+                ++ (if String.isEmpty fieldEncoders then
+                        "[]"
 
-                        1 ->
-                            case List.head childNodes of
-                                -- cannot happen when set size is 1
-                                Nothing ->
-                                    "ERROR"
-
-                                Just childNode ->
-                                    encoderName namingStyle (String.Extra.decapitalize typeName) childNode
-
-                        _ ->
-                            -- heterogeneous array
-                            ("case " ++ String.Extra.decapitalize typeName ++ " of\n")
-                                ++ String.repeat 8 " "
-                                ++ (childNodes
-                                        |> List.map (\n -> ( elmType n, n ))
-                                        |> List.Extra.uniqueBy Tuple.first
-                                        |> List.sortBy Tuple.first
-                                        |> (\lst ->
-                                                -- the decoder for an empty array has to be pushed to the end
-                                                -- to allow other list decoders to be tried first
-                                                case List.Extra.findIndex (firstIs "List ()") lst of
-                                                    Nothing ->
-                                                        lst
-
-                                                    Just i ->
-                                                        case List.Extra.getAt i lst of
-                                                            Just tuple ->
-                                                                List.append (List.Extra.removeAt i lst) [ tuple ]
-
-                                                            Nothing ->
-                                                                -- cannot happen but we cannot tell the type system that
-                                                                lst
-                                           )
-                                        |> List.map (Tuple.second >> encoderName namingStyle "value")
-                                        |> List.indexedMap
-                                            (\i name ->
-                                                (typeName ++ String.fromInt i ++ " value ->\n")
-                                                    ++ (String.repeat 12 " " ++ name)
-                                            )
-                                        |> String.join ("\n\n" ++ String.repeat 8 " ")
-                                   )
+                    else
+                        "[ " ++ fieldEncoders ++ ("\n" ++ String.repeat 8 " " ++ "]")
                    )
     in
     mainEncoder
-        :: (childNodes
-                |> List.filter producesNestedTypes
-                |> List.map (encoders namingStyle)
+        :: (nodeTuples
+                |> List.filter (Tuple.second >> isNonTrivial)
+                |> List.map (\( label, n ) -> encoders namingStyle (Cons.appendList path [ label ]) n)
                 |> List.concat
            )
 
 
-listEncoderName : NamingStyle -> Path -> List Node -> String
+listEncoders : NamingStyle -> Path -> JsonValue -> List JsonValue -> List String
+listEncoders namingStyle path node childNodes =
+    let
+        uniqueItems =
+            List.Extra.uniqueBy asStr childNodes
+                |> List.sortBy decoderSortOrder
+
+        isHeterogeneous =
+            List.length uniqueItems > 1
+
+        typeName =
+            typeAliasName path
+
+        listEncoder =
+            (encoderNamePrefix namingStyle ++ typeName ++ " : ")
+                ++ ("List " ++ (paren <| listItemTypeName path uniqueItems) ++ " -> Json.Encode.Value\n")
+                ++ (encoderNamePrefix namingStyle ++ typeName ++ " " ++ String.Extra.decapitalize typeName ++ " =\n")
+                ++ (String.repeat 4 " " ++ listEncoderName namingStyle path uniqueItems ++ " " ++ String.Extra.decapitalize typeName)
+
+        mainEncoders =
+            (if Cons.length path == 1 then
+                -- Usually we don't need to generate a separate encoder function for the list itself,
+                -- instead expressing things in terms of the item encoder function. However,
+                -- if the top level value is an array, we do need to generate an encoder function for it,
+                -- so we add it here
+                [ listEncoder ]
+
+             else
+                []
+            )
+                ++ (if isHeterogeneous then
+                        [ (encoderNamePrefix namingStyle ++ typeName ++ "Item : ")
+                            ++ (listItemTypeName path uniqueItems ++ " -> Json.Encode.Value\n")
+                            ++ (encoderNamePrefix namingStyle ++ typeName ++ "Item " ++ String.Extra.decapitalize typeName ++ " =\n")
+                            ++ String.repeat 4 " "
+                            ++ ("case " ++ String.Extra.decapitalize typeName ++ " of\n")
+                            ++ String.repeat 8 " "
+                            ++ (uniqueItems
+                                    |> List.indexedMap
+                                        (\i n ->
+                                            (typeName ++ String.fromInt i ++ " value ->\n")
+                                                ++ (String.repeat 12 " " ++ encoderName namingStyle "value" (Cons.appendList path [ strFromIndex i ]) n)
+                                        )
+                                    |> String.join ("\n\n" ++ String.repeat 8 " ")
+                               )
+                        ]
+
+                    else
+                        []
+                   )
+    in
+    mainEncoders
+        ++ (uniqueItems
+                |> List.indexedMap
+                    (\i n ->
+                        if isNonTrivial n then
+                            encoders namingStyle (Cons.appendList path [ strFromIndex i ]) n
+
+                        else
+                            []
+                    )
+                |> List.concat
+           )
+
+
+listEncoderName : NamingStyle -> Path -> List JsonValue -> String
 listEncoderName namingStyle path nodes =
     let
-        encoderNames =
-            List.map (encoderName namingStyle "") nodes
-                |> Set.fromList
+        uniqueItems =
+            List.Extra.uniqueBy asStr nodes
+
+        isHeterogeneous =
+            List.length uniqueItems > 1
     in
-    if Set.size encoderNames == 1 then
-        "Json.Encode.list " ++ (paren <| Maybe.withDefault "ERROR" <| List.head <| Set.toList encoderNames)
+    "Json.Encode.list "
+        ++ (if isHeterogeneous then
+                encoderNamePrefix namingStyle ++ typeAliasName path ++ "Item"
 
-    else
-        encoderNamePrefix namingStyle ++ typeAliasName path
+            else
+                case List.head uniqueItems of
+                    Nothing ->
+                        "(\\_ -> Json.Encode.null)"
+
+                    Just node ->
+                        paren <| encoderName namingStyle "" (Cons.appendList path [ strFromIndex 0 ]) node
+           )
 
 
-encoderName : NamingStyle -> String -> Node -> String
-encoderName namingStyle valueName { path, value } =
+encoderName : NamingStyle -> String -> Path -> JsonValue -> String
+encoderName namingStyle valueName path value =
     String.trimRight <|
         case value of
-            JInt _ ->
+            JInt ->
                 "Json.Encode.int " ++ valueName
 
-            JFloat _ ->
+            JFloat ->
                 "Json.Encode.float " ++ valueName
 
-            JString _ ->
+            JString ->
                 "Json.Encode.string " ++ valueName
 
-            JBool _ ->
+            JBool ->
                 "Json.Encode.bool " ++ valueName
 
-            JList [] ->
-                -- an empty list is a special case because there is no member type
-                "Json.Encode.list (\\_ -> Json.Encode.null) []"
+            JNull ->
+                "Json.Encode.null"
 
             JList nodes ->
                 listEncoderName namingStyle path nodes ++ " " ++ valueName
 
             JObj _ ->
                 encoderNamePrefix namingStyle ++ typeAliasName path ++ " " ++ valueName
-
-            JNull ->
-                "Json.Encode.null"
 
 
 encoderNamePrefix : NamingStyle -> String
