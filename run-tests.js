@@ -178,7 +178,7 @@ null
 }
 `
 , `
-{"_": 1, "😀": "2", "😀face": false, "@field": null}
+{"_": 1, "__": 2, "😀": "2", "😀face": false, "@field": null}
 `
 ], R.map((fileName) => Fs.readFileSync(fileName).toString(), Glob.sync("json-samples/*.json")))
 

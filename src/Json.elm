@@ -106,7 +106,7 @@ jsonDecoder =
         , Decode.map (\_ -> JFloat) Decode.float
         , Decode.map (\_ -> JBool) Decode.bool
         , Decode.map JList <| Decode.list <| Decode.lazy (\_ -> jsonDecoder)
-        , Decode.map (JObj << List.sortBy Tuple.first) <| Decode.keyValuePairs <| Decode.lazy (\_ -> jsonDecoder)
+        , Decode.map (JObj << List.sortBy (adorn 0 << Tuple.first)) <| Decode.keyValuePairs <| Decode.lazy (\_ -> jsonDecoder)
         , Decode.null JNull
         ]
 
@@ -271,13 +271,12 @@ objTypeAliases path nodeTuples =
     let
         fieldStr =
             nodeTuples
-                |> List.map
-                    (\node ->
-                        (adorn <| Tuple.first node)
+                |> List.indexedMap
+                    (\i node ->
+                        (adorn i <| Tuple.first node)
                             ++ " : "
                             ++ elmType (Cons.appendList path [ Tuple.first node ]) (Tuple.second node)
                     )
-                |> List.sort
                 |> String.join "\n    , "
 
         mainAlias =
@@ -491,45 +490,42 @@ objDecoders options path nodeTuples =
         typeName =
             typeAliasName path
 
-        sortedChildNodes =
-            List.sortBy (Tuple.first >> adorn) nodeTuples
-
         funcName =
             decoderFuncName options.namingStyle typeName
 
         mainDecoder =
             (funcName ++ " : Json.Decode.Decoder " ++ typeName ++ "\n")
                 ++ (funcName ++ " = \n")
-                ++ (case ( List.length sortedChildNodes, options.decoderStyle ) of
+                ++ (case ( List.length nodeTuples, options.decoderStyle ) of
                         ( 0, _ ) ->
                             "    Json.Decode.succeed " ++ typeName
 
                         ( 1, PlainDecoders ) ->
-                            "    Json.Decode.map " ++ typeName ++ "\n" ++ objFieldDecoders 8 options.namingStyle path sortedChildNodes
+                            "    Json.Decode.map " ++ typeName ++ "\n" ++ objFieldDecoders 8 options.namingStyle path nodeTuples
 
                         ( fieldCount, PlainDecoders ) ->
                             if fieldCount > 8 then
-                                stagedObjDecoders options.namingStyle typeName path sortedChildNodes
+                                stagedObjDecoders options.namingStyle typeName path nodeTuples
 
                             else
                                 "    Json.Decode.map"
-                                    ++ (String.fromInt <| List.length sortedChildNodes)
+                                    ++ (String.fromInt <| List.length nodeTuples)
                                     ++ " "
                                     ++ typeName
                                     ++ "\n"
-                                    ++ objFieldDecoders 8 options.namingStyle path sortedChildNodes
+                                    ++ objFieldDecoders 8 options.namingStyle path nodeTuples
 
                         ( _, PipelineDecoders ) ->
                             "    Json.Decode.succeed "
                                 ++ typeName
                                 ++ "\n"
-                                ++ pipelineObjFieldDecoders 8 options.namingStyle path sortedChildNodes
+                                ++ pipelineObjFieldDecoders 8 options.namingStyle path nodeTuples
 
                         ( _, ApplicativeDecoders ) ->
                             "    Json.Decode.succeed "
                                 ++ typeName
                                 ++ "\n"
-                                ++ applicativeObjFieldDecoders 8 options.namingStyle path sortedChildNodes
+                                ++ applicativeObjFieldDecoders 8 options.namingStyle path nodeTuples
                    )
     in
     mainDecoder
@@ -732,15 +728,14 @@ objEncoders namingStyle path nodeTuples =
 
         fieldEncoders =
             nodeTuples
-                |> List.map
-                    (\( label, node ) ->
+                |> List.indexedMap
+                    (\i ( label, node ) ->
                         "( \""
                             ++ label
                             ++ "\", "
-                            ++ encoderName namingStyle (String.Extra.decapitalize typeName ++ "." ++ adorn label) (Cons.appendList path [ label ]) node
+                            ++ encoderName namingStyle (String.Extra.decapitalize typeName ++ "." ++ adorn i label) (Cons.appendList path [ label ]) node
                             ++ " )"
                     )
-                |> List.sort
                 |> String.join ("\n" ++ String.repeat 8 " " ++ ", ")
 
         mainEncoder =
@@ -909,8 +904,8 @@ keywords =
         ]
 
 
-adorn : String -> String
-adorn fieldName =
+adorn : Int -> String -> String
+adorn fieldIndex fieldName =
     let
         startsWithDigit s =
             s
@@ -940,7 +935,10 @@ adorn fieldName =
                 |> String.Extra.classify
                 |> String.Extra.decapitalize
                 |> (\name ->
-                        if String.isEmpty name || startsWithDigit name then
+                        if String.isEmpty name then
+                            "field" ++ (String.fromChar <| Char.fromCode <| fieldIndex + 65)
+
+                        else if startsWithDigit name then
                             "field" ++ name
 
                         else
