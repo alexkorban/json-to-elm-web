@@ -10,10 +10,10 @@ import Element.Border as Border
 import Element.Events as Events
 import Element.Font as Font
 import Element.Input as Input
+import ElmCodeGenerator
 import Html exposing (Html)
 import Html.Attributes
 import Html.Events exposing (onClick)
-import Json
 import Json.Decode
 import Task
 
@@ -24,15 +24,15 @@ port copySignal : () -> Cmd msg
 type Output
     = None
     | Error String
-    | Code Json.Output
+    | Code ElmCodeGenerator.Output
 
 
 type alias Model =
     { debounce : Debounce ( TypeName, JsonString )
-    , decoderStyle : Json.DecoderStyle
+    , decoderStyle : ElmCodeGenerator.DecoderStyle
     , elmResult : Output
     , jsonText : JsonString
-    , namingStyle : Json.NamingStyle
+    , namingStyle : ElmCodeGenerator.NamingStyle
     , showSettings : Bool
     , topLevelTypeName : String
     , windowSize : Size
@@ -57,8 +57,8 @@ type Msg
     | UserPressedCopyButton
     | UserPressedSettingsButton
     | UserResizedWindow Int Int
-    | UserSelectedDecoderStyle Json.DecoderStyle
-    | UserSelectedNamingStyle Json.NamingStyle
+    | UserSelectedDecoderStyle ElmCodeGenerator.DecoderStyle
+    | UserSelectedNamingStyle ElmCodeGenerator.NamingStyle
     | UserTypedJson String
     | UserTypedTopLevelTypeName String
 
@@ -89,10 +89,10 @@ debounceConfig =
 init : Flags -> ( Model, Cmd Msg )
 init flags =
     ( { debounce = Debounce.init
-      , decoderStyle = Json.PlainDecoders
+      , decoderStyle = ElmCodeGenerator.PlainDecoders
       , elmResult = None
       , jsonText = ""
-      , namingStyle = Json.NounNaming
+      , namingStyle = ElmCodeGenerator.NounNaming
       , showSettings = False
       , topLevelTypeName = "Root"
       , windowSize = { height = flags.windowHeight, width = flags.windowWidth }
@@ -253,8 +253,8 @@ view model =
                                         , label =
                                             Input.labelLeft [ padding 5 ] <| text "Naming style"
                                         , options =
-                                            [ Input.optionWith Json.NounNaming <| selectorButton First "Noun"
-                                            , Input.optionWith Json.VerbNaming <| selectorButton Last "Verb"
+                                            [ Input.optionWith ElmCodeGenerator.NounNaming <| selectorButton First "Noun"
+                                            , Input.optionWith ElmCodeGenerator.VerbNaming <| selectorButton Last "Verb"
                                             ]
                                         }
                                     , Input.radioRow []
@@ -263,9 +263,9 @@ view model =
                                         , label =
                                             Input.labelLeft [ padding 5 ] <| text "Decoder style"
                                         , options =
-                                            [ Input.optionWith Json.PlainDecoders <| selectorButton First "Plain"
-                                            , Input.optionWith Json.ApplicativeDecoders <| selectorButton Mid "Applicative"
-                                            , Input.optionWith Json.PipelineDecoders <| selectorButton Last "Pipeline"
+                                            [ Input.optionWith ElmCodeGenerator.PlainDecoders <| selectorButton First "Plain"
+                                            , Input.optionWith (ElmCodeGenerator.ApplicativeDecoders { importAlias = "Json.Decode.Extra", exposingSpec = ElmCodeGenerator.ExposingNone }) <| selectorButton Mid "Applicative"
+                                            , Input.optionWith (ElmCodeGenerator.PipelineDecoders { importAlias = "Json.Decode.Pipeline", exposingSpec = ElmCodeGenerator.ExposingNone }) <| selectorButton Last "Pipeline"
                                             ]
                                         }
                                     ]
@@ -341,7 +341,16 @@ update msg model =
                 ( { model | elmResult = None }, Cmd.none )
 
             else
-                case Json.convert { rootTypeName = topLevelTypeName, decoderStyle = model.decoderStyle, namingStyle = model.namingStyle } jsonText of
+                case
+                    ElmCodeGenerator.fromJsonSample
+                        { rootTypeName = topLevelTypeName
+                        , decodeImport = { importAlias = "Json.Decode", exposingSpec = ElmCodeGenerator.ExposingNone }
+                        , encodeImport = { importAlias = "Json.Encode", exposingSpec = ElmCodeGenerator.ExposingNone }
+                        , decoderStyle = model.decoderStyle
+                        , namingStyle = model.namingStyle
+                        }
+                        jsonText
+                of
                     Err err ->
                         ( { model | elmResult = Error err }, Cmd.none )
 
@@ -431,8 +440,8 @@ navBar model =
         , headingTypeface
         ]
         [ link [ centerY, height <| px 50 ]
-            { url = "https://korban.net/posts/elm"
-            , label = image [ width (px 46), height (px 50) ] { src = "https://korban.net/img/logo.png", description = "Korban.net" }
+            { url = "https://korban.net/elm"
+            , label = image [ width (px 46), height (px 50) ] { src = "https://korban.net/assets/img/logo.png", description = "Korban.net" }
             }
         , el [ centerY, headingTypeface, Font.color <| rgb255 0x22 0x55 0x71, Font.size 20, Font.bold, Font.letterSpacing 1.5 ] <| text "json2elm"
         , if model.windowSize.width > 1100 then
@@ -443,11 +452,11 @@ navBar model =
                 , Font.size 16
                 ]
             <|
-                text "Generate Elm code to handle JSON from a JSON sample"
+                text "Generate JSON decoders and encoders from a JSON sample"
 
           else
             none
-        , link [ centerY, alignRight, Font.color color.blue, Font.underline ] { url = "https://korban.net/elm/elm-book", label = text "Practical Elm book" }
+        , link [ centerY, alignRight, Font.color color.blue, Font.underline ] { url = "https://korban.net/elm/book", label = text "Practical Elm book" }
         , link [ centerY, alignRight, Font.color color.blue, Font.underline ] { url = "https://korban.net/elm/elm-ui-guide", label = text "elm-ui Guide: The CSS Escape Plan" }
         ]
 
@@ -467,9 +476,9 @@ footer =
         ]
         [ link [ centerY, height <| px 25 ]
             { url = "https://korban.net/elm/about"
-            , label = image [ width (px 23), height (px 25) ] { src = "https://korban.net/img/logo.png", description = "Korban.net" }
+            , label = image [ width (px 23), height (px 25) ] { src = "https://korban.net/assets/img/logo.png", description = "Korban.net" }
             }
-        , link [] { url = "https://korban.net/elm/about", label = text "A project of korban.net" }
+        , link [] { url = "https://korban.net/elm", label = text "A project of korban.net" }
         , link [ alignRight ] { url = "https://package.elm-lang.org/packages/mdgriffith/elm-ui/latest/", label = text "Made with mdgriffith/elm-ui" }
         ]
 
